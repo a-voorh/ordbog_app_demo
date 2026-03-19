@@ -439,6 +439,18 @@ textarea {
   width: 100%;
 }
 
+.mobile-stack {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.mobile-width-limit {
+  width: 100%;
+  max-width: 320px;
+}
+
 @media (max-width: 720px) {
   .app-page {
     padding: 16px 12px 28px;
@@ -455,6 +467,10 @@ textarea {
 
   .top-nav {
     margin-bottom: 16px;
+  }
+
+  .page-header-side {
+    max-width: none;
   }
 
   .controls-row,
@@ -475,6 +491,10 @@ textarea {
     width: 100%;
   }
 
+  .chat-shell {
+    padding: 14px;
+  }
+
   .chat-box {
     min-height: 200px;
     padding: 12px;
@@ -482,6 +502,30 @@ textarea {
 
   .chat-message {
     padding: 9px;
+  }
+
+  .chat-message strong {
+    display: inline-block;
+    margin-bottom: 4px;
+  }
+
+  .mini-box {
+    padding: 9px;
+  }
+
+  .textarea-input {
+    min-height: 110px;
+    font-size: 16px;
+  }
+
+  .button-primary-large {
+    min-height: 46px;
+    padding: 12px 16px;
+    font-size: 16px;
+  }
+
+  .right-actions .button-primary-large {
+    max-width: none !important;
   }
 
   .badge {
