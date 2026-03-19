@@ -113,7 +113,6 @@ export default function PracticePage() {
   const [addPhraseStatus, setAddPhraseStatus] = useState<string | null>(null);
 
   const [hoveredPhraseId, setHoveredPhraseId] = useState<string | null>(null);
-  const [openPhraseId, setOpenPhraseId] = useState<string | null>(null);
 
   const [messageTranslations, setMessageTranslations] = useState<Record<number, string>>({});
   const [showTranslationByMessage, setShowTranslationByMessage] = useState<Record<number, boolean>>({});
@@ -133,8 +132,8 @@ export default function PracticePage() {
   const [savingLookupDraft, setSavingLookupDraft] = useState(false);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [targetsOpen, setTargetsOpen] = useState(false);
-  const [feedbackOpen, setFeedbackOpen] = useState(true);
+  const [targetsOpen, setTargetsOpen] = useState(true);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
@@ -494,11 +493,13 @@ export default function PracticePage() {
   }, [lookupOpen]);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && window.innerWidth > 720) {
-      setTargetsOpen(true);
-      setFeedbackOpen(true);
-    } else {
+    const isMobile = typeof window !== "undefined" && window.innerWidth <= 720;
+    if (isMobile) {
       setFeedbackOpen(false);
+      setTargetsOpen(true);
+    } else {
+      setFeedbackOpen(true);
+      setTargetsOpen(true);
     }
   }, []);
 
@@ -747,6 +748,10 @@ export default function PracticePage() {
 
       setUsedPhraseSet((prev) => Array.from(new Set([...prev, ...correctlyUsed])));
 
+      if (feedbackForDisplay.some((item) => item.status !== "unused")) {
+        setFeedbackOpen(true);
+      }
+
       const nowIso = new Date().toISOString();
 
       if (retryState) {
@@ -895,6 +900,7 @@ export default function PracticePage() {
           return Array.from(next);
         });
 
+        setFeedbackOpen(true);
         setSecondOpinionNote("Second opinion applied.");
 
         if (secondOpinionTimeoutRef.current !== null) {
@@ -1186,7 +1192,7 @@ export default function PracticePage() {
               Conversation practice
             </h2>
             <div className="meta-text">
-              This is the main activity. Start a session and reply naturally in Danish.
+              Start a session and reply naturally in Danish.
             </div>
           </div>
 
@@ -1263,7 +1269,7 @@ export default function PracticePage() {
               Quick lookup
             </h2>
             <div className="meta-text">
-              Optional help when you are stuck on a word.
+              Optional help if you get stuck on a word.
             </div>
           </div>
 
@@ -1364,13 +1370,10 @@ export default function PracticePage() {
                         className="underline-help"
                         style={{
                           fontWeight: 600,
-                          cursor: "pointer",
+                          cursor: "help",
                           position: "relative",
                           display: "inline-block",
                         }}
-                        onClick={() =>
-                          setOpenPhraseId((prev) => (prev === card.id ? null : card.id))
-                        }
                         onMouseEnter={() => setHoveredPhraseId(card.id)}
                         onMouseLeave={() =>
                           setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
@@ -1378,7 +1381,7 @@ export default function PracticePage() {
                       >
                         {card.phrase}
 
-                        {(hoveredPhraseId === card.id || openPhraseId === card.id) && (
+                        {hoveredPhraseId === card.id && (
                           <div
                             style={{
                               position: "absolute",
@@ -1449,14 +1452,16 @@ export default function PracticePage() {
         )}
       </div>
 
-      {messages.length > 0 && (
-        <div className="chat-shell">
-          <h2 className="section-title" style={{ marginBottom: 12 }}>
-            Chat
-          </h2>
+      <div className="chat-shell">
+        <h2 className="section-title" style={{ marginBottom: 12 }}>
+          Chat
+        </h2>
 
-          <div className="chat-box" style={{ marginBottom: 16 }}>
-            {messages.map((msg, i) => (
+        <div className="chat-box" style={{ marginBottom: 16 }}>
+          {messages.length === 0 ? (
+            <p>No conversation yet.</p>
+          ) : (
+            messages.map((msg, i) => (
               <div
                 key={i}
                 className={`chat-message ${
@@ -1469,11 +1474,10 @@ export default function PracticePage() {
                   : msg.content}
 
                 {msg.role === "assistant" && (
-                  <div style={{ marginTop: 8 }}>
-                    <div className="inline-row">
+                  <div style={{ marginTop: 10 }}>
+                    <div className="utility-actions">
                       <button
                         className="button-secondary button-small"
-                        style={{ padding: "6px 10px" }}
                         onClick={() => openAddPhraseFromMessage(i)}
                       >
                         Create card draft
@@ -1481,7 +1485,6 @@ export default function PracticePage() {
 
                       <button
                         className="button-secondary button-small"
-                        style={{ padding: "6px 10px" }}
                         onClick={() => void translateAssistantMessage(i, msg.content)}
                         disabled={translatingMessageIndex === i}
                       >
@@ -1550,137 +1553,134 @@ export default function PracticePage() {
                   </div>
                 )}
               </div>
-            ))}
-            <div ref={chatBottomRef} />
-          </div>
+            ))
+          )}
+          <div ref={chatBottomRef} />
+        </div>
 
-          {!allPhrasesUsed ? (
-            <>
-              {retryState && (
-                <div
-                  className="mini-box"
-                  style={{
-                    background: "#fff7ed",
-                    border: "1px solid #fdba74",
-                    color: "#9a3412",
-                    marginBottom: 12,
-                  }}
-                >
-                  You are editing your last reply. If it becomes correct now, it will count
-                  as almost for stats.
-                </div>
-              )}
+        {!allPhrasesUsed ? (
+          <>
+            {retryState && (
+              <div
+                className="mini-box"
+                style={{
+                  background: "#fff7ed",
+                  border: "1px solid #fdba74",
+                  color: "#9a3412",
+                  marginBottom: 12,
+                }}
+              >
+                You are editing your last reply. If it becomes correct now, it will count
+                as almost for stats.
+              </div>
+            )}
 
-              <div className="mini-box" style={{ marginTop: 0 }}>
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleSendKeyDown}
-                  placeholder="Write your reply in Danish..."
-                  className="textarea-input"
-                  rows={4}
-                  style={{
-                    width: "100%",
-                    fontSize: 16,
-                    marginBottom: 12,
-                  }}
-                />
+            <div className="mini-box composer-box">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleSendKeyDown}
+                placeholder="Write your reply in Danish..."
+                className="textarea-input"
+                rows={4}
+                style={{ width: "100%", fontSize: 16, marginBottom: 12 }}
+              />
 
-                <div className="controls-row-spread">
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    {messages.length > 0 && (
-                      <button
-                        onClick={endSession}
-                        disabled={loading}
-                        className={`button-secondary ${loading ? "button-disabled" : ""}`}
-                      >
-                        End session
-                      </button>
-                    )}
-
-                    {canRegenerate && (
-                      <button
-                        onClick={() => void regenerateAnswer()}
-                        disabled={loading}
-                        className={`button-secondary ${loading ? "button-disabled" : ""}`}
-                      >
-                        Regenerate answer
-                      </button>
-                    )}
-
-                    {canRegenerate &&
-                      lastPhraseFeedback.some(
-                        (item) => item.status === "wrong" || item.status === "almost"
-                      ) && (
-                        <button
-                          onClick={startTryAgain}
-                          disabled={loading || reviewingSecondOpinion}
-                          className={`button-secondary ${
-                            loading || reviewingSecondOpinion ? "button-disabled" : ""
-                          }`}
-                        >
-                          Try again
-                        </button>
-                      )}
-                  </div>
-
-                  <div className="right-actions">
+              <div className="composer-actions">
+                <div className="composer-secondary-actions">
+                  {messages.length > 0 && (
                     <button
-                      onClick={() => void sendMessage()}
-                      disabled={
-                        loading ||
-                        reviewingSecondOpinion ||
-                        (messages.length === 0 && !retryState) ||
-                        !input.trim()
-                      }
-                      className={`button-primary button-primary-large ${
-                        loading ||
-                        reviewingSecondOpinion ||
-                        (messages.length === 0 && !retryState) ||
-                        !input.trim()
-                          ? "button-disabled"
-                          : ""
-                      }`}
-                      style={{ maxWidth: 240 }}
+                      onClick={endSession}
+                      disabled={loading}
+                      className={`button-secondary ${loading ? "button-disabled" : ""}`}
                     >
-                      {loading ? "Sending..." : "Send"}
+                      End session
                     </button>
-                  </div>
+                  )}
+
+                  {canRegenerate && (
+                    <button
+                      onClick={() => void regenerateAnswer()}
+                      disabled={loading}
+                      className={`button-secondary ${loading ? "button-disabled" : ""}`}
+                    >
+                      Regenerate answer
+                    </button>
+                  )}
+
+                  {canRegenerate &&
+                    lastPhraseFeedback.some(
+                      (item) => item.status === "wrong" || item.status === "almost"
+                    ) && (
+                      <button
+                        onClick={startTryAgain}
+                        disabled={loading || reviewingSecondOpinion}
+                        className={`button-secondary ${
+                          loading || reviewingSecondOpinion ? "button-disabled" : ""
+                        }`}
+                      >
+                        Try again
+                      </button>
+                    )}
+                </div>
+
+                <div className="send-button-wrap">
+                  <button
+                    onClick={() => void sendMessage()}
+                    disabled={
+                      loading ||
+                      reviewingSecondOpinion ||
+                      (messages.length === 0 && !retryState) ||
+                      !input.trim()
+                    }
+                    className={`button-primary send-button ${
+                      loading ||
+                      reviewingSecondOpinion ||
+                      (messages.length === 0 && !retryState) ||
+                      !input.trim()
+                        ? "button-disabled"
+                        : ""
+                    }`}
+                  >
+                    {loading ? "Sending..." : "Send"}
+                  </button>
                 </div>
               </div>
-            </>
-          ) : (
-            <div
-              className="success-box"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <strong>Nice — you used all target phrases correctly.</strong>
-              <button
-                onClick={() => void startNewWeakPhrasePractice()}
-                disabled={loading}
-                className={`button-primary ${loading ? "button-disabled" : ""}`}
-              >
-                {loading ? "Loading..." : "Start new session"}
-              </button>
             </div>
-          )}
-        </div>
-      )}
+          </>
+        ) : (
+          <div
+            className="success-box"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <strong>Nice — you used all target phrases correctly.</strong>
+            <button
+              onClick={() => void startNewWeakPhrasePractice()}
+              disabled={loading}
+              className={`button-primary ${loading ? "button-disabled" : ""}`}
+            >
+              {loading ? "Loading..." : "Start new session"}
+            </button>
+          </div>
+        )}
+      </div>
 
       {hasVisibleFeedback && (
         <div className="info-box">
-          <div
-            className="controls-row-spread"
-            style={{ alignItems: "center" }}
-          >
-            <strong>Phrase feedback</strong>
+          <div className="controls-row-spread" style={{ alignItems: "center" }}>
+            <div>
+              <strong>Phrase feedback</strong>
+              <div className="meta-text" style={{ marginTop: 4 }}>
+                Review how your last reply went.
+              </div>
+            </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
