@@ -7,7 +7,7 @@ export async function POST(req: Request) {
     });
 
     const body = await req.json();
-    const english = body.english;
+    const english = body.english?.trim();
 
     if (!english || typeof english !== "string") {
       return Response.json({ error: "Missing english query" }, { status: 400 });
@@ -20,25 +20,31 @@ export async function POST(req: Request) {
           role: "system",
           content: `You help a Danish learner quickly look up an English word or short phrase.
 
-Your job:
-1. Give the most natural Danish equivalent.
-2. Give the English translation back.
-3. Give a short explanation in Danish.
-4. Give one natural Danish example sentence.
-5. Give the English translation of that example.
-6. Give extra_info:
-   - if it is a noun: include gender like "en" or "et"
-   - if it is a verb: include present tense and past participle if useful
-   - otherwise keep it short
+The user input is in English.
+Your main task is to return the best natural Danish translation.
 
-Important:
+Important field rules:
+- "corrected_phrase" MUST be the Danish word or Danish phrase.
+- It must NOT repeat the English input unless the Danish form is genuinely identical.
+- "translation_en" should contain the English meaning of the Danish phrase.
+- "short_explanation_da" must be written in Danish.
+- "example_da" must be a natural Danish sentence using the Danish phrase.
+- "example_en" must be the English translation of the Danish example sentence.
+
+extra_info:
+- if it is a noun: include gender like "en" or "et"
+- if it is a verb: include useful forms such as present tense and past participle when relevant
+- otherwise keep it short
+
+General rules:
 - Prefer one clear, useful Danish answer, not a long list.
+- Prefer the most common natural Danish equivalent.
 - Keep explanations short and practical.
 - Return ONLY valid JSON.`,
         },
         {
           role: "user",
-          content: `Look up this English word or phrase: "${english}"
+          content: `English input: "${english}"
 
 Return JSON with exactly this structure:
 {
