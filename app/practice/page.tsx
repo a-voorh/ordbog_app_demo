@@ -134,7 +134,7 @@ export default function PracticePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [targetsOpen, setTargetsOpen] = useState(true);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [showEnglishInTargetHints, setShowEnglishInTargetHints] = useState(false);
+  const [showEnglishInHover, setShowEnglishInHover] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
@@ -163,17 +163,24 @@ export default function PracticePage() {
     if ((card.times_attempted ?? 0) === 0) return 0;
 
     const base =
-      ((card.times_correct ?? 0) + 0.5 * (card.times_almost ?? 0)) /
+      ((card.times_correct ?? 0) + 0.8 * (card.times_almost ?? 0)) /
       (card.times_attempted ?? 0);
 
     const days = daysSinceLastPracticed(card);
 
-    if (days === null) return base;
-    if (days > 30) return Math.max(0, base - 0.35);
-    if (days > 14) return Math.max(0, base - 0.2);
-    if (days > 7) return Math.max(0, base - 0.1);
+    let confidenceBonus = 0;
+    if ((card.times_attempted ?? 0) >= 6) confidenceBonus = 0.12;
+    else if ((card.times_attempted ?? 0) >= 3) confidenceBonus = 0.08;
+    else confidenceBonus = 0.04;
 
-    return base;
+    let stalePenalty = 0;
+    if (days !== null) {
+      if (days > 30) stalePenalty = 0.18;
+      else if (days > 14) stalePenalty = 0.1;
+      else if (days > 7) stalePenalty = 0.05;
+    }
+
+    return Math.max(0, Math.min(1, base + confidenceBonus - stalePenalty));
   };
 
   const getPrioritySorted = (pool: PhraseCard[]) => {
@@ -469,6 +476,10 @@ export default function PracticePage() {
 
       setSelectedIds(parsedSelectedIds);
       setPracticeSource(parsedSelectedIds.length > 0 ? "selected" : "all");
+
+      if (parsedSelectedIds.length > 0) {
+        localStorage.removeItem("selected_phrase_ids");
+      }
     };
 
     void initialize();
@@ -860,6 +871,11 @@ export default function PracticePage() {
           history: messages,
           userMessage: latestUserMessage,
           currentFeedback: lastPhraseFeedback,
+          retryState: retryState
+            ? {
+                originalFeedback: retryState.originalFeedback,
+              }
+            : null,
         }),
       });
 
@@ -873,16 +889,20 @@ export default function PracticePage() {
       const revisedFeedback = data.phraseFeedback as PhraseFeedback[] | undefined;
 
       if (Array.isArray(revisedFeedback)) {
-        setLastPhraseFeedback(revisedFeedback);
+        const displayFeedback = retryState
+          ? addRetryNotesToFeedback(revisedFeedback, retryState.originalFeedback)
+          : revisedFeedback;
+
+        setLastPhraseFeedback(displayFeedback);
 
         const revisedCorrectSet = new Set(
-          revisedFeedback
+          displayFeedback
             .filter((item) => item.status === "correct")
             .map((item) => item.phrase)
         );
 
         const revisedMentionedPhrases = new Set(
-          revisedFeedback
+          displayFeedback
             .filter((item) => item.status !== "unused")
             .map((item) => item.phrase)
         );
@@ -1246,24 +1266,18 @@ export default function PracticePage() {
                   ))}
                 </select>
               </div>
-            </div>
 
-            <div style={{ marginTop: 12 }}>
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={showEnglishInTargetHints}
-                  onChange={(e) => setShowEnglishInTargetHints(e.target.checked)}
-                />
-                <span className="meta-text">Show English translation in target hints</span>
-              </label>
+              <div>
+                <label className="meta-text" style={{ display: "block", marginBottom: 6 }}>
+                  Hover card English
+                </label>
+                <button
+                  onClick={() => setShowEnglishInHover((prev) => !prev)}
+                  className="button-secondary"
+                >
+                  {showEnglishInHover ? "Hide English" : "Show English"}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1364,12 +1378,21 @@ export default function PracticePage() {
             </div>
           </div>
 
-          <button
-            onClick={() => setTargetsOpen((prev) => !prev)}
-            className="button-secondary"
-          >
-            {targetsOpen ? "Hide targets" : "Show targets"}
-          </button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={() => setShowEnglishInHover((prev) => !prev)}
+              className="button-secondary"
+            >
+              {showEnglishInHover ? "Hide English" : "Show English"}
+            </button>
+
+            <button
+              onClick={() => setTargetsOpen((prev) => !prev)}
+              className="button-secondary"
+            >
+              {targetsOpen ? "Hide targets" : "Show targets"}
+            </button>
+          </div>
         </div>
 
         {targetsOpen && (
@@ -1444,12 +1467,12 @@ export default function PracticePage() {
                               )}
                             </div>
 
-                            {showEnglishInTargetHints && (
+                            {showEnglishInHover && (
                               <div
                                 style={{
                                   marginBottom: 8,
-                                  color: "#374151",
-                                  fontStyle: "italic",
+                                  color: "#1f2937",
+                                  fontWeight: 600,
                                 }}
                               >
                                 {card.translation_en}

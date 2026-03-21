@@ -414,6 +414,12 @@ Use sentenceIssue only for grammar problems OUTSIDE the target phrase.
 
 Do NOT use sentenceComment to criticize the target phrase itself.
 
+Very important:
+- Missing commas should normally NOT count as a grammar issue.
+- Minor punctuation issues should usually be ignored.
+- Do NOT punish the learner for forgetting commas.
+- Only mention punctuation if it seriously changes meaning or makes the sentence hard to understand.
+
 --------------------------------
 7. UNUSED PHRASES (IMPORTANT TONE)
 --------------------------------
@@ -459,6 +465,7 @@ Do NOT:
 - enforce optional grammatical choices
 - require definiteness unless strictly necessary
 - require additional words like "med" unless they are grammatically required
+- punish missing commas or harmless punctuation
 
 Examples:
 - "sænke energiforbrug" is acceptable
@@ -466,7 +473,7 @@ Examples:
 - do NOT force one if the other is already natural
 - do NOT force "med" or quantities unless truly required
 
-Only correct actual grammatical or semantic errors, not style or completeness.
+Only correct actual grammatical or semantic errors, not style, commas, or completeness.
 
 --------------------------------
 10. DETECTED TEXT GROUNDING (CRITICAL)
@@ -496,7 +503,8 @@ Be careful, but do not be over-strict.
 Follow these priorities:
 - prefer meaning over tiny stylistic preferences
 - do NOT mark a phrase wrong because of small punctuation or style choices if the phrase itself is acceptable
-- do NOT over-correct comma placement unless it truly changes correctness
+- do NOT over-correct comma placement
+- missing commas should normally be ignored
 - only use "wrong" when the phrase really fails in grammar, meaning, or context
 - prefer "wrong" over "correct" only when the learner sentence is not clearly meaningful
 - prefer "wrong" over "almost" when the phrase is placed into a sentence that does not make semantic sense

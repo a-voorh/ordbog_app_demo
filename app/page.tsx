@@ -260,34 +260,44 @@ export default function Home() {
     const almost = almostOf(card);
 
     if (attempted === 0) return 0;
-    return (correct + 0.5 * almost) / attempted;
+    return (correct + 0.8 * almost) / attempted;
   };
 
   const effectiveSuccessScore = (card: PhraseCard) => {
+    const attempted = attemptsOf(card);
+    if (attempted === 0) return 0;
+
     const base = successScore(card);
     const days = daysSinceLastPracticed(card);
 
-    if (days === null) return base;
-    if (days > 30) return Math.max(0, base - 0.35);
-    if (days > 14) return Math.max(0, base - 0.2);
-    if (days > 7) return Math.max(0, base - 0.1);
+    let confidenceBonus = 0;
+    if (attempted >= 6) confidenceBonus = 0.12;
+    else if (attempted >= 3) confidenceBonus = 0.08;
+    else confidenceBonus = 0.04;
 
-    return base;
+    let stalePenalty = 0;
+    if (days !== null) {
+      if (days > 30) stalePenalty = 0.18;
+      else if (days > 14) stalePenalty = 0.1;
+      else if (days > 7) stalePenalty = 0.05;
+    }
+
+    return Math.max(0, Math.min(1, base + confidenceBonus - stalePenalty));
   };
 
   const masteryColor = (card: PhraseCard) => {
     const attempted = attemptsOf(card);
-    if (attempted < 5) return "#e5e7eb";
+    if (attempted < 3) return "#e5e7eb";
 
     const s = effectiveSuccessScore(card);
-    if (s < 0.4) return "#fca5a5";
-    if (s < 0.8) return "#fcd34d";
+    if (s < 0.45) return "#fca5a5";
+    if (s < 0.68) return "#fcd34d";
     return "#86efac";
   };
 
   const masteryText = (card: PhraseCard) => {
     const attempted = attemptsOf(card);
-    if (attempted < 5) return `new (${attempted}/5)`;
+    if (attempted < 3) return `new (${attempted}/3)`;
     return `${Math.round(effectiveSuccessScore(card) * 100)}%`;
   };
 
@@ -305,8 +315,8 @@ export default function Home() {
       const aAttempts = attemptsOf(a);
       const bAttempts = attemptsOf(b);
 
-      if (aAttempts < 5 && bAttempts >= 5) return -1;
-      if (bAttempts < 5 && aAttempts >= 5) return 1;
+      if (aAttempts < 3 && bAttempts >= 3) return -1;
+      if (bAttempts < 3 && aAttempts >= 3) return 1;
 
       const aScore = effectiveSuccessScore(a);
       const bScore = effectiveSuccessScore(b);
@@ -346,13 +356,13 @@ export default function Home() {
 
   const totalSaved = cards.length;
   const activeVocabularyCount = cards.filter(
-    (card) => attemptsOf(card) >= 5 && effectiveSuccessScore(card) >= 0.8
+    (card) => attemptsOf(card) >= 3 && effectiveSuccessScore(card) >= 0.68
   ).length;
   const needsReviewCount = cards.filter((card) => {
     const attempts = attemptsOf(card);
     const score = effectiveSuccessScore(card);
     const days = daysSinceLastPracticed(card);
-    return attempts < 5 || score < 0.8 || (days !== null && days > 7);
+    return attempts < 3 || score < 0.68 || (days !== null && days > 14);
   }).length;
 
   const analyzePhrase = async (p: string) => {
@@ -499,6 +509,11 @@ export default function Home() {
 
   const removeSelectedTag = (tag: string) => {
     setSelectedTags((prev) => prev.filter((t) => t !== tag));
+  };
+
+  const clearPracticeSelection = () => {
+    setSelectedForPractice([]);
+    localStorage.removeItem("selected_phrase_ids");
   };
 
   const createDraftFromPhrase = async () => {
@@ -1299,7 +1314,16 @@ export default function Home() {
           <p className="app-subtitle">Små danske vendinger, forklaringer og øvelse</p>
         </div>
 
-        <div style={{ flex: "0 0 220px", minWidth: 220, width: "100%", maxWidth: 280 }}>
+        <div
+          style={{
+            flex: "0 0 220px",
+            minWidth: 220,
+            width: "100%",
+            maxWidth: 280,
+            display: "grid",
+            gap: 10,
+          }}
+        >
           <Link href="/practice" className="link-reset">
             <span
               className="nav-button"
@@ -1314,6 +1338,16 @@ export default function Home() {
               Practice Mode →
             </span>
           </Link>
+
+          {selectedForPractice.length > 0 && (
+            <button
+              onClick={clearPracticeSelection}
+              className="button-secondary"
+              style={{ width: "100%" }}
+            >
+              Clear selected phrases ({selectedForPractice.length})
+            </button>
+          )}
         </div>
       </div>
 
