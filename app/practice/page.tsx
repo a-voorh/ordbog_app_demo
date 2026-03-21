@@ -134,6 +134,7 @@ export default function PracticePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [targetsOpen, setTargetsOpen] = useState(true);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [showEnglishInTargetHints, setShowEnglishInTargetHints] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
@@ -1246,6 +1247,24 @@ export default function PracticePage() {
                 </select>
               </div>
             </div>
+
+            <div style={{ marginTop: 12 }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={showEnglishInTargetHints}
+                  onChange={(e) => setShowEnglishInTargetHints(e.target.checked)}
+                />
+                <span className="meta-text">Show English translation in target hints</span>
+              </label>
+            </div>
           </div>
         )}
 
@@ -1424,6 +1443,18 @@ export default function PracticePage() {
                                 </span>
                               )}
                             </div>
+
+                            {showEnglishInTargetHints && (
+                              <div
+                                style={{
+                                  marginBottom: 8,
+                                  color: "#374151",
+                                  fontStyle: "italic",
+                                }}
+                              >
+                                {card.translation_en}
+                              </div>
+                            )}
 
                             <div style={{ color: "#111827" }}>
                               {card.short_explanation}
