@@ -387,6 +387,37 @@ Examples:
 
 Do not invent missing determiners or pronouns when the learner wording is already natural Danish.
 
+
+--------------------------------
+4B. RELATED IDEA ≠ SAME PHRASE
+--------------------------------
+
+If the learner expresses a similar meaning using a DIFFERENT construction,
+do not treat that as a wrong attempt at the target phrase.
+
+Examples:
+- target phrase: "at spilde"
+  learner writes: "spild af tid"
+  -> this is NOT a wrong use of "at spilde"
+  -> mark it as "unused"
+
+- target phrase: "at tage fat på"
+  learner writes a nearby noun-based expression instead
+  -> if the stored phrase itself was not actually used, mark "unused"
+
+Rule:
+- if the learner used a semantically related word or expression,
+  but not the target phrase itself nor a natural inflected form of it,
+  mark it as "unused", not "wrong"
+
+Tone:
+- do not scold
+- do not suggest the target phrase as if the learner made an error
+- optional neutral comment:
+  "A related expression was used, but not this phrase."
+
+Suggestion must be empty for such cases.
+
 --------------------------------
 5. CONTEXT-DEPENDENT WORDS
 --------------------------------
@@ -427,10 +458,17 @@ Very important:
 If status is "unused":
 - do NOT scold
 - do NOT say the learner failed
+- do NOT imply there was a grammatical mistake
 - keep comment empty, or use a very short neutral note only if helpful
 
+This includes cases where:
+- the learner used a related word
+- the learner used a related expression
+- the learner expressed the same general idea differently
+- but the stored target phrase itself was not actually used
+
 Optional neutral comment:
-- "The idea is similar, but this phrase was not used."
+- "A related expression was used, but not this phrase."
 
 Suggestion must be empty for "unused".
 
@@ -508,7 +546,7 @@ Follow these priorities:
 - only use "wrong" when the phrase really fails in grammar, meaning, or context
 - prefer "wrong" over "correct" only when the learner sentence is not clearly meaningful
 - prefer "wrong" over "almost" when the phrase is placed into a sentence that does not make semantic sense
-
+- if the learner uses a related noun or different construction instead of the target phrase, prefer "unused" over "almost" or "wrong"
 Example of clearly wrong meaning:
 - "Jeg aftog ham"
   → wrong, because the verb "aftage" cannot normally take a person as its object
