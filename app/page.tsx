@@ -137,6 +137,7 @@ export default function Home() {
 
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [savingPhraseToPendingDraft, setSavingPhraseToPendingDraft] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
@@ -479,6 +480,66 @@ export default function Home() {
       setLookupStatus("Something went wrong.");
     } finally {
       setSavingLookupDraft(false);
+    }
+  };
+
+  const createPendingDraftFromPhrase = async () => {
+    if (!phrase.trim()) return;
+
+    setSavingPhraseToPendingDraft(true);
+
+    try {
+      const parsed = await analyzePhrase(phrase.trim());
+
+      if (!parsed) {
+        alert("Could not analyze this phrase.");
+        return;
+      }
+
+      const correctedPhrase = parsed.corrected_phrase.trim();
+      const newKey = normalizePhraseKey(correctedPhrase);
+
+      const duplicateInCards = cards.some(
+        (card) => normalizePhraseKey(card.phrase) === newKey
+      );
+
+      const duplicateInPendingDrafts = pendingDrafts.some(
+        (draft) => normalizePhraseKey(draft.phrase) === newKey
+      );
+
+      if (duplicateInCards || duplicateInPendingDrafts) {
+        alert(`This phrase already exists: ${correctedPhrase}`);
+        return;
+      }
+
+      const normalizedTags = Array.from(
+        new Set(selectedTags.map(normalizeTag).filter(Boolean))
+      );
+
+      const newDraft: PendingDraft = {
+        id: crypto.randomUUID(),
+        phrase: correctedPhrase,
+        translation_en: parsed.translation_en,
+        short_explanation: parsed.short_explanation_da,
+        example_da: parsed.example_da,
+        example_en: parsed.example_en,
+        extra_info: parsed.extra_info,
+        tags: normalizedTags,
+        created_at: new Date().toISOString(),
+        source: "phrase_input",
+      };
+
+      const { error } = await supabase.from("phrase_drafts").insert(newDraft);
+
+      if (error) {
+        alert("Could not save draft.");
+        return;
+      }
+
+      setPendingDrafts((prev) => [newDraft, ...prev]);
+      setPhrase("");
+    } finally {
+      setSavingPhraseToPendingDraft(false);
     }
   };
 
@@ -1391,17 +1452,33 @@ export default function Home() {
             }}
           />
 
-          <button
-            onClick={() => void createDraftFromPhrase()}
-            className="button-primary"
-            style={{
-              width: "100%",
-              padding: "14px 16px",
-              fontSize: 16,
-            }}
-          >
-            {loading ? "Analyzing..." : "Analyze phrase"}
-          </button>
+          <div className="controls-row">
+            <button
+              onClick={() => void createDraftFromPhrase()}
+              className="button-primary"
+              style={{
+                flex: "1 1 220px",
+                padding: "14px 16px",
+                fontSize: 16,
+              }}
+              disabled={loading || savingPhraseToPendingDraft}
+            >
+              {loading ? "Analyzing..." : "Analyze phrase"}
+            </button>
+
+            <button
+              onClick={() => void createPendingDraftFromPhrase()}
+              className="button-secondary"
+              style={{
+                flex: "1 1 220px",
+                padding: "14px 16px",
+                fontSize: 16,
+              }}
+              disabled={loading || savingPhraseToPendingDraft}
+            >
+              {savingPhraseToPendingDraft ? "Saving..." : "Create pending draft"}
+            </button>
+          </div>
         </div>
       </div>
 
