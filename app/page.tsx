@@ -1450,7 +1450,7 @@ export default function Home() {
             }}
           />
 
-          <div className="controls-row">
+          <div className="inline-action-row">
   <button
     onClick={() => void createDraftFromPhrase()}
     className="button-primary"
@@ -2268,7 +2268,7 @@ export default function Home() {
               <div className="mini-box" style={{ marginTop: 0 }}>
                 <h3 className="subsection-title">Manage tags</h3>
 
-                <div className="controls-row">
+               <div className="inline-action-row">
                   <input
                     value={renameFrom}
                     onChange={(e) => setRenameFrom(e.target.value)}

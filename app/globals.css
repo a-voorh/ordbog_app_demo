@@ -1,5 +1,30 @@
 @import "tailwindcss";
 
+.inline-action-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.inline-action-row > .button-primary,
+.inline-action-row > .button-secondary {
+  flex: 1 1 220px;
+}
+
+@media (max-width: 720px) {
+  .inline-action-row {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .inline-action-row > .button-primary,
+  .inline-action-row > .button-secondary {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
