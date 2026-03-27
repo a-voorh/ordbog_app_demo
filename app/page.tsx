@@ -1472,7 +1472,7 @@ export default function Home() {
     }}
     disabled={loading || savingPhraseToPendingDraft}
   >
-    {savingPhraseToPendingDraft ? "Saving..." : "Create pending draft"}
+    {savingPhraseToPendingDraft ? "Saving..." : "Create draft"}
   </button>
 </div>
         </div>
