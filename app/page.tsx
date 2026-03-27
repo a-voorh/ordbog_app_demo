@@ -1387,25 +1387,23 @@ export default function Home() {
         >
           <Link href="/practice" className="link-reset">
             <span
-              className="nav-button"
-              style={{
-                display: "block",
-                textAlign: "center",
-                width: "100%",
-                padding: "14px 16px",
-                fontSize: 16,
-              }}
-            >
+  className="nav-button button-full"
+  style={{
+    display: "block",
+    textAlign: "center",
+    padding: "14px 16px",
+    fontSize: 16,
+  }}
+>
               Practice Mode →
             </span>
           </Link>
 
           {selectedForPractice.length > 0 && (
             <button
-              onClick={clearPracticeSelection}
-              className="button-secondary"
-              style={{ width: "100%" }}
-            >
+  onClick={clearPracticeSelection}
+  className="button-secondary button-full"
+>
               Clear selected phrases ({selectedForPractice.length})
             </button>
           )}
@@ -1453,32 +1451,30 @@ export default function Home() {
           />
 
           <div className="controls-row">
-            <button
-              onClick={() => void createDraftFromPhrase()}
-              className="button-primary"
-              style={{
-                flex: "1 1 220px",
-                padding: "14px 16px",
-                fontSize: 16,
-              }}
-              disabled={loading || savingPhraseToPendingDraft}
-            >
-              {loading ? "Analyzing..." : "Analyze phrase"}
-            </button>
+  <button
+    onClick={() => void createDraftFromPhrase()}
+    className="button-primary"
+    style={{
+      padding: "14px 16px",
+      fontSize: 16,
+    }}
+    disabled={loading || savingPhraseToPendingDraft}
+  >
+    {loading ? "Analyzing..." : "Analyze phrase"}
+  </button>
 
-            <button
-              onClick={() => void createPendingDraftFromPhrase()}
-              className="button-secondary"
-              style={{
-                flex: "1 1 220px",
-                padding: "14px 16px",
-                fontSize: 16,
-              }}
-              disabled={loading || savingPhraseToPendingDraft}
-            >
-              {savingPhraseToPendingDraft ? "Saving..." : "Create pending draft"}
-            </button>
-          </div>
+  <button
+    onClick={() => void createPendingDraftFromPhrase()}
+    className="button-secondary"
+    style={{
+      padding: "14px 16px",
+      fontSize: 16,
+    }}
+    disabled={loading || savingPhraseToPendingDraft}
+  >
+    {savingPhraseToPendingDraft ? "Saving..." : "Create pending draft"}
+  </button>
+</div>
         </div>
       </div>
 

@@ -87,8 +87,6 @@ textarea {
   font: inherit;
 }
 
-/* ---------- LAYOUT ---------- */
-
 .app-page {
   width: 100%;
   max-width: var(--page-max);
@@ -99,8 +97,6 @@ textarea {
     max(40px, env(safe-area-inset-bottom))
     max(16px, env(safe-area-inset-left));
 }
-
-/* ---------- TYPOGRAPHY ---------- */
 
 .app-title {
   font-size: clamp(30px, 5vw, 40px);
@@ -116,6 +112,31 @@ textarea {
   color: var(--muted);
 }
 
+.top-nav {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 28px;
+}
+
+.page-header-main {
+  flex: 1 1 260px;
+}
+
+.page-header-side {
+  width: 100%;
+  max-width: 260px;
+}
+
 .section-title {
   font-size: clamp(22px, 3vw, 26px);
   font-weight: 700;
@@ -127,8 +148,6 @@ textarea {
   font-weight: 700;
   margin: 0 0 12px 0;
 }
-
-/* ---------- CARDS ---------- */
 
 .card {
   border: 1px solid var(--border);
@@ -145,7 +164,31 @@ textarea {
   box-shadow: var(--shadow-hover);
 }
 
-/* ---------- INPUTS ---------- */
+.card-quiet {
+  background: var(--panel-soft);
+}
+
+.card-strong {
+  border: 2px solid var(--border-strong);
+  padding: 18px;
+}
+
+.info-box {
+  margin-bottom: 20px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--panel-soft);
+}
+
+.success-box {
+  margin-bottom: 20px;
+  padding: 12px;
+  border: 1px solid var(--success-border);
+  border-radius: 12px;
+  background: var(--success-bg);
+  color: var(--success-text);
+}
 
 .text-input,
 .select-input,
@@ -171,7 +214,12 @@ textarea {
   resize: vertical;
 }
 
-/* ---------- BUTTONS (FIXED) ---------- */
+.text-input:focus,
+.select-input:focus,
+.textarea-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
 
 .button-primary,
 .button-secondary,
@@ -182,67 +230,364 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: auto;              /* 🔑 important */
-  flex: 0 0 auto;           /* 🔑 prevents stretching */
   border-radius: var(--radius-sm);
   cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease;
   text-decoration: none;
   white-space: nowrap;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.button-primary:hover,
+.button-secondary:hover,
+.button-danger:hover,
+.nav-button:hover,
+.tag-pill:hover,
+.tag-pill-selected:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-hover);
 }
 
 .button-primary,
 .nav-button {
   padding: 10px 16px;
+  font-size: 14px;
   font-weight: 600;
   border: 1px solid var(--primary);
   background: var(--primary);
   color: white;
+  box-shadow: var(--shadow-soft);
+}
+
+.button-primary:hover,
+.nav-button:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.button-primary-large {
+  width: 100%;
+  min-height: 48px;
+  padding: 14px 18px;
+  font-size: 16px;
 }
 
 .button-secondary {
   padding: 10px 14px;
+  font-size: 14px;
   border: 1px solid var(--border-strong);
   background: var(--panel);
+  color: var(--foreground);
+  box-shadow: var(--shadow-small);
 }
 
 .button-danger {
   padding: 10px 14px;
+  font-size: 14px;
   border: 1px solid var(--danger);
+  background: var(--panel);
   color: var(--danger);
+  box-shadow: var(--shadow-small);
 }
 
-/* ---------- FLEX ROWS ---------- */
+.button-small {
+  padding: 8px 12px;
+  font-size: 13px;
+}
 
+.button-disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.button-full {
+  width: 100%;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-neutral {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+@media (prefers-color-scheme: dark) {
+  .badge-neutral {
+    background: #27272a;
+    color: #e4e4e7;
+  }
+}
+
+.tag-pill,
+.tag-pill-selected {
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 999px;
+  user-select: none;
+}
+
+.tag-pill {
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--foreground);
+}
+
+.tag-pill-selected {
+  border: 1px solid #60a5fa;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.tag-row,
 .controls-row,
-.inline-row,
-.tag-row {
+.inline-row {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
 }
 
-/* ---------- MOBILE FIX ---------- */
+.controls-row {
+  gap: 12px;
+}
+
+.controls-row-spread {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.meta-text {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.chat-shell {
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 18px;
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+  margin-bottom: 24px;
+}
+
+.chat-box {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  min-height: 250px;
+  margin-bottom: 16px;
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chat-box:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.chat-message {
+  margin-bottom: 14px;
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.chat-message-assistant {
+  background: var(--assistant-bg);
+}
+
+.chat-message-user {
+  background: var(--user-bg);
+}
+
+.mini-box {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--mini-border) 55%, var(--border));
+  border-radius: 10px;
+  background: var(--mini-bg);
+}
+
+.underline-help {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.link-reset {
+  text-decoration: none;
+}
+
+.stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.right-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex: 1 1 220px;
+}
+
+.full-on-mobile {
+  width: 100%;
+}
+
+.composer-box {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 12px;
+}
+
+.composer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.composer-secondary-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.send-button-wrap {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.send-button {
+  width: auto;
+  min-width: 120px;
+  min-height: 46px;
+  padding: 10px 18px;
+  font-size: 15px;
+}
+
+.utility-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
 
 @media (max-width: 720px) {
+  .app-page {
+    padding:
+      max(16px, env(safe-area-inset-top))
+      max(12px, env(safe-area-inset-right))
+      max(28px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
+  }
+
+  .card {
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+
+  .card-strong {
+    padding: 16px;
+  }
+
+  .top-nav {
+    margin-bottom: 16px;
+  }
+
   .controls-row,
-  .inline-row,
-  .tag-row {
+  .controls-row-spread,
+  .inline-row {
     flex-direction: column;
     align-items: stretch;
   }
 
-  /* ONLY nav button full width */
   .nav-button {
     width: 100%;
   }
 
-  /* keep others compact */
   .button-primary,
   .button-secondary,
   .button-danger {
     width: auto;
+    max-width: 100%;
     align-self: flex-start;
+  }
+
+  .button-full {
+    width: 100%;
+  }
+
+  .right-actions {
+    width: 100%;
+  }
+
+  .chat-shell {
+    padding: 14px;
+  }
+
+  .chat-box {
+    min-height: 200px;
+    padding: 12px;
+  }
+
+  .chat-message {
+    padding: 9px;
+  }
+
+  .badge {
+    font-size: 11px;
+  }
+
+  .composer-box {
+    max-width: 100%;
+    padding: 10px;
+  }
+
+  .composer-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .composer-secondary-actions {
+    width: 100%;
+  }
+
+  .composer-secondary-actions .button-secondary {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .send-button-wrap {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .send-button {
+    width: auto;
+    min-width: 120px;
+  }
+
+  .utility-actions {
+    justify-content: flex-start;
+  }
+
+  .page-header-side {
+    max-width: 100%;
   }
 }
