@@ -1460,7 +1460,7 @@ export default function Home() {
     }}
     disabled={loading || savingPhraseToPendingDraft}
   >
-    {loading ? "Analyzing..." : "Analyze phrase"}
+    {loading ? "Analyzing..." : "Analyze"}
   </button>
 
   <button
