@@ -1417,6 +1417,23 @@ export default function PracticePage() {
         cursor: "help",
         position: "relative",
       }}
+      onClick={() => {
+  const phraseToInsert = card.phrase;
+
+  setInput((prev) => {
+    if (!prev.trim()) return phraseToInsert;
+
+    // avoid double spaces
+    if (prev.endsWith(" ")) return prev + phraseToInsert;
+
+    return prev + " " + phraseToInsert;
+  });
+
+  // focus back to textarea
+  setTimeout(() => {
+    inputRef.current?.focus();
+  }, 0);
+}}
       onMouseEnter={() => setHoveredPhraseId(card.id)}
       onMouseLeave={() =>
         setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
