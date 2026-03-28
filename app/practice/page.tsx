@@ -1395,101 +1395,73 @@ export default function PracticePage() {
             {selectedCards.length === 0 ? (
               <p>No saved phrases yet. Go back and add some first.</p>
             ) : (
-              <ul style={{ paddingLeft: 20, marginBottom: 16 }}>
-                {selectedCards.map((card) => (
-                  <li key={card.id} style={{ marginBottom: 12, position: "relative" }}>
-                    <div>
-                      <span style={{ marginRight: 8 }}>
-                        {getPhraseStatusSymbol(card.phrase)}
-                      </span>
+             <div
+  style={{
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  }}
+>
+  {selectedCards.map((card) => (
+    <div
+      key={card.id}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 8px",
+        borderRadius: 999,
+        background: "#f3f4f6",
+        fontSize: 13,
+        cursor: "help",
+        position: "relative",
+      }}
+      onMouseEnter={() => setHoveredPhraseId(card.id)}
+      onMouseLeave={() =>
+        setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
+      }
+    >
+      <span>{getPhraseStatusSymbol(card.phrase)}</span>
 
-                      <span
-                        className="underline-help"
-                        style={{
-                          fontWeight: 600,
-                          cursor: "help",
-                          position: "relative",
-                          display: "inline-block",
-                        }}
-                        onMouseEnter={() => setHoveredPhraseId(card.id)}
-                        onMouseLeave={() =>
-                          setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
-                        }
-                      >
-                        {card.phrase}
+      <span style={{ fontWeight: 500 }}>
+        {card.phrase}
+      </span>
 
-                        {hoveredPhraseId === card.id && (
-                          <div
-                            style={{
-                              position: "absolute",
-                              top: "125%",
-                              left: 0,
-                              zIndex: 20,
-                              minWidth: "260px",
-                              maxWidth: "340px",
-                              background: "#ffffff",
-                              border: "1px solid #d1d5db",
-                              borderRadius: "12px",
-                              padding: "12px 14px",
-                              boxShadow: "0 10px 28px rgba(0,0,0,0.14)",
-                              color: "#111827",
-                              fontWeight: 400,
-                              lineHeight: 1.45,
-                              whiteSpace: "normal",
-                            }}
-                          >
-                            <div
-                              style={{
-                                fontWeight: 700,
-                                marginBottom: 8,
-                                display: "flex",
-                                alignItems: "baseline",
-                                gap: 6,
-                                flexWrap: "wrap",
-                              }}
-                            >
-                              <span>{card.phrase}</span>
-                              {card.extra_info && (
-                                <span
-                                  style={{
-                                    fontWeight: 400,
-                                    color: "#4b5563",
-                                    fontSize: "0.95em",
-                                  }}
-                                >
-                                  ({card.extra_info})
-                                </span>
-                              )}
-                            </div>
+      {hoveredPhraseId === card.id && (
+        <div
+          style={{
+            position: "absolute",
+            top: "120%",
+            left: 0,
+            zIndex: 20,
+            minWidth: 220,
+            maxWidth: 300,
+            background: "#fff",
+            border: "1px solid #ddd",
+            borderRadius: 10,
+            padding: 10,
+            boxShadow: "0 8px 20px rgba(0,0,0,0.12)",
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>
+            {card.phrase}
+          </div>
 
-                            {showEnglishInHover && (
-                              <div
-                                style={{
-                                  marginBottom: 8,
-                                  color: "#1f2937",
-                                  fontWeight: 600,
-                                }}
-                              >
-                                {card.translation_en}
-                              </div>
-                            )}
+          {showEnglishInHover && (
+            <div style={{ marginTop: 4, fontWeight: 500 }}>
+              {card.translation_en}
+            </div>
+          )}
 
-                            <div style={{ color: "#111827" }}>
-                              {card.short_explanation}
-                            </div>
-                          </div>
-                        )}
-                      </span>
-                    </div>
-
-                    {card.extra_info && (
-                      <div className="meta-text" style={{ marginTop: 2, marginLeft: 22 }}>
-                        {card.extra_info}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
+          <div style={{ marginTop: 4 }}>
+            {card.short_explanation}
+          </div>
+        </div>
+      )}
+    </div>
+  ))}
+</div>
             )}
 
             {selectedCards.length > 0 && (
@@ -1564,7 +1536,10 @@ export default function PracticePage() {
 
                 {msg.role === "assistant" && (
                   <div style={{ marginTop: 10 }}>
-                    <div className="utility-actions">
+                    <div
+  className="utility-actions"
+  style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
+>
                       <button
                         className="button-secondary button-small"
                         onClick={() => openAddPhraseFromMessage(i)}
@@ -1677,42 +1652,49 @@ export default function PracticePage() {
               />
 
               <div className="composer-actions">
-                <div className="composer-secondary-actions">
-                  {messages.length > 0 && (
-                    <button
-                      onClick={endSession}
-                      disabled={loading}
-                      className={`button-secondary ${loading ? "button-disabled" : ""}`}
-                    >
-                      End session
-                    </button>
-                  )}
+                <div
+  style={{
+    display: "flex",
+    gap: 6,
+    flexWrap: "wrap",
+    alignItems: "center",
+  }}
+>
+  {messages.length > 0 && (
+    <button
+      onClick={endSession}
+      disabled={loading}
+      className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
+    >
+      End
+    </button>
+  )}
 
-                  {canRegenerate && (
-                    <button
-                      onClick={() => void regenerateAnswer()}
-                      disabled={loading}
-                      className={`button-secondary ${loading ? "button-disabled" : ""}`}
-                    >
-                      Regenerate answer
-                    </button>
-                  )}
+  {canRegenerate && (
+    <button
+      onClick={() => void regenerateAnswer()}
+      disabled={loading}
+      className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
+    >
+      Retry
+    </button>
+  )}
 
-                  {canRegenerate &&
-                    lastPhraseFeedback.some(
-                      (item) => item.status === "wrong" || item.status === "almost"
-                    ) && (
-                      <button
-                        onClick={startTryAgain}
-                        disabled={loading || reviewingSecondOpinion}
-                        className={`button-secondary ${
-                          loading || reviewingSecondOpinion ? "button-disabled" : ""
-                        }`}
-                      >
-                        Try again
-                      </button>
-                    )}
-                </div>
+  {canRegenerate &&
+    lastPhraseFeedback.some(
+      (item) => item.status === "wrong" || item.status === "almost"
+    ) && (
+      <button
+        onClick={startTryAgain}
+        disabled={loading || reviewingSecondOpinion}
+        className={`button-secondary button-small ${
+          loading || reviewingSecondOpinion ? "button-disabled" : ""
+        }`}
+      >
+        Fix
+      </button>
+    )}
+</div>
 
                 <div className="send-button-wrap">
                   <button
