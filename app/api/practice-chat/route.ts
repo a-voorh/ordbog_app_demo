@@ -105,9 +105,10 @@ Conversation rules:
 8. When starting a new conversation, prefer a concrete mini-scenario instead of a generic greeting.
 
 Target phrase handling:
-- Do NOT use a target phrase yourself.
+- NEVER use a target phrase yourself.
 - Prefer to create situations where the learner might use the phrase.
-- If you must use a target phrase, only do it once the learner does and only if it is necessary in the context.
+- Do not help the learner by demonstrating the phrase.
+- Even if a target phrase would sound natural here, do not use it.
 
 Good examples of scenario openings:
 - Du møder en ven på en café. Hvad taler I om?
@@ -152,70 +153,68 @@ Do not label the scenario explicitly. Just start naturally in Danish.`,
       replyResponse.output_text?.trim() ||
       "Du møder en ven på en café. Hvordan går det?";
 
-    let assistantUsedTarget = assistantReplyUsesForbiddenPhrase(reply, phraseList);
-
-    if (assistantUsedTarget) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const regenerateResponse = await client.responses.create({
-          model: "gpt-4.1-mini",
-          input: [
-            {
-              role: "system",
-              content: `You are a friendly Danish conversation partner for a learner.
-
-Write ONE short natural Danish reply to continue the conversation.
-
-Very important:
-- Do NOT use any of these forbidden target phrases
-- Do NOT use close repeats of them without leading "at"
-- Stay in the role of the OTHER speaker
-- Keep the same topic and conversational intent
-- Keep it short, natural, and simple
-
-Forbidden target phrases:
-${phraseList.map((p) => `- ${p}`).join("\n")}
-
-Return only the Danish reply as plain text.`,
-            },
-            ...conversationMessages,
-          ],
-          text: {
-            format: {
-              type: "text",
-            },
-          },
-        });
-
-        const regeneratedReply = regenerateResponse.output_text?.trim();
-        if (regeneratedReply) {
-          reply = regeneratedReply;
-        }
-
-        assistantUsedTarget = assistantReplyUsesForbiddenPhrase(reply, phraseList);
-        if (!assistantUsedTarget) break;
-      }
-    }
-
-    if (assistantUsedTarget) {
-      const rewriteResponse = await client.responses.create({
-        model: "gpt-4.1-mini",
-        input: [
-          {
-            role: "system",
-            content: `You are rewriting a Danish assistant reply.
+    // Always rewrite the assistant reply to remove target phrases and their forms.
+    // This is more reliable than trying to detect all conjugated/inflected variants.
+    const rewriteResponse = await client.responses.create({
+      model: "gpt-4.1-mini",
+      input: [
+        {
+          role: "system",
+          content: `You are rewriting a Danish assistant reply.
 
 Your goal:
 - keep the reply natural, short, and helpful
 - keep the same general scenario and conversational intent
+- keep it to 1-2 sentences
 - do NOT use any of the forbidden target phrases
+- do NOT use grammatical forms of those phrases, including conjugations, tense changes, plural forms, derived forms, or close repeats
 - do NOT use those phrases without leading "at" either
 - do NOT mention that you are avoiding anything
 - do NOT become awkward or robotic
+- keep the reply conversational and simple
 
 Forbidden target phrases:
 ${phraseList.map((p) => `- ${p}`).join("\n")}
 
 Return only the rewritten Danish reply as plain text.`,
+        },
+        {
+          role: "user",
+          content: reply,
+        },
+      ],
+      text: {
+        format: {
+          type: "text",
+        },
+      },
+    });
+
+    const rewrittenReply = rewriteResponse.output_text?.trim();
+
+    if (rewrittenReply) {
+      reply = rewrittenReply;
+    }
+
+    // Safety fallback: if exact forms still slipped through, try one more rewrite.
+    if (assistantReplyUsesForbiddenPhrase(reply, phraseList)) {
+      const secondRewriteResponse = await client.responses.create({
+        model: "gpt-4.1-mini",
+        input: [
+          {
+            role: "system",
+            content: `Rewrite this Danish reply again.
+
+Rules:
+- preserve meaning and tone
+- keep it short and natural
+- do NOT use any forbidden target phrases
+- do NOT use them without leading "at"
+- paraphrase freely if needed
+- return only the Danish reply
+
+Forbidden target phrases:
+${phraseList.map((p) => `- ${p}`).join("\n")}`,
           },
           {
             role: "user",
@@ -229,10 +228,10 @@ Return only the rewritten Danish reply as plain text.`,
         },
       });
 
-      const rewrittenReply = rewriteResponse.output_text?.trim();
+      const secondRewrittenReply = secondRewriteResponse.output_text?.trim();
 
-      if (rewrittenReply) {
-        reply = rewrittenReply;
+      if (secondRewrittenReply) {
+        reply = secondRewrittenReply;
       }
     }
 
@@ -385,7 +384,6 @@ Examples:
 - "sænke energiforbruget" is also acceptable
 
 Do not invent missing determiners or pronouns when the learner wording is already natural Danish.
-
 
 --------------------------------
 4B. RELATED IDEA ≠ SAME PHRASE
