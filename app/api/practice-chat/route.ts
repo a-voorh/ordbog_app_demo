@@ -36,6 +36,29 @@ const assistantReplyUsesForbiddenPhrase = (
   });
 };
 
+const assistantReplySoundsLikeLearner = (reply: string) => {
+  const normalized = normalizeText(reply);
+
+  const suspiciousStarts = ["jeg ", "mig ", "min ", "mit ", "mine "];
+
+  const suspiciousPhrases = [
+    "jeg plejer",
+    "jeg plejer at",
+    "jeg har",
+    "jeg bor",
+    "jeg arbejder",
+    "jeg studerer",
+    "jeg synes at",
+    "for mig",
+    "i mit liv",
+  ];
+
+  return (
+    suspiciousStarts.some((start) => normalized.startsWith(start)) ||
+    suspiciousPhrases.some((phrase) => normalized.includes(phrase))
+  );
+};
+
 export async function POST(req: Request) {
   try {
     const client = new OpenAI({
@@ -153,8 +176,6 @@ Do not label the scenario explicitly. Just start naturally in Danish.`,
       replyResponse.output_text?.trim() ||
       "Du møder en ven på en café. Hvordan går det?";
 
-    // Always rewrite the assistant reply to remove target phrases and their forms.
-    // This is more reliable than trying to detect all conjugated/inflected variants.
     const rewriteResponse = await client.responses.create({
       model: "gpt-4.1-mini",
       input: [
@@ -166,9 +187,18 @@ Your goal:
 - keep the reply natural, short, and helpful
 - keep the same general scenario and conversational intent
 - keep it to 1-2 sentences
+- the assistant must remain clearly the OTHER speaker in the conversation
+- the assistant must NOT speak as if it is the learner
+- the assistant must NOT describe the learner's life as its own
+- the assistant must NOT continue the learner's sentence as if it belonged in the learner's mouth
+- prefer a brief reaction, a follow-up question, or a conversational response
+
+Target phrase constraints:
 - do NOT use any of the forbidden target phrases
 - do NOT use grammatical forms of those phrases, including conjugations, tense changes, plural forms, derived forms, or close repeats
 - do NOT use those phrases without leading "at" either
+
+Style constraints:
 - do NOT mention that you are avoiding anything
 - do NOT become awkward or robotic
 - keep the reply conversational and simple
@@ -196,8 +226,10 @@ Return only the rewritten Danish reply as plain text.`,
       reply = rewrittenReply;
     }
 
-    // Safety fallback: if exact forms still slipped through, try one more rewrite.
-    if (assistantReplyUsesForbiddenPhrase(reply, phraseList)) {
+    if (
+      assistantReplyUsesForbiddenPhrase(reply, phraseList) ||
+      assistantReplySoundsLikeLearner(reply)
+    ) {
       const secondRewriteResponse = await client.responses.create({
         model: "gpt-4.1-mini",
         input: [
@@ -208,6 +240,11 @@ Return only the rewritten Danish reply as plain text.`,
 Rules:
 - preserve meaning and tone
 - keep it short and natural
+- the assistant must clearly be the OTHER speaker
+- do NOT speak as if you are the learner
+- do NOT describe the learner's life as your own
+- do NOT continue the learner's answer as if it were your own statement
+- prefer a reaction or follow-up question
 - do NOT use any forbidden target phrases
 - do NOT use them without leading "at"
 - paraphrase freely if needed
@@ -343,6 +380,11 @@ Rules:
 - do NOT criticize tense differences if the learner form is correct
 - do NOT mention that the base form is different
 - only comment on form if the learner's actual form is wrong
+
+CRITICAL:
+If the learner uses a correct conjugated verb form (e.g. "spilder", "spildte", "spildt"),
+you MUST treat it as correct usage of the phrase.
+You MUST NOT require the infinitive form "at + verb".
 
 --------------------------------
 3. RULES ABOUT "AT"
