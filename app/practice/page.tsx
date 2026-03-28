@@ -1188,6 +1188,13 @@ export default function PracticePage() {
 
   const hasVisibleFeedback = lastPhraseFeedback.some((item) => item.status !== "unused");
 
+  const practiceSourceLabel =
+    practiceSource === "all"
+      ? "All phrases"
+      : practiceSource === "selected"
+        ? "Selected phrases"
+        : practiceSource;
+
   return (
     <main className="app-page">
       <div className="page-header">
@@ -1206,14 +1213,14 @@ export default function PracticePage() {
       <div className="card card-strong" style={{ marginBottom: 24 }}>
         <div
           className="controls-row-spread"
-          style={{ marginBottom: settingsOpen ? 14 : 10 }}
+          style={{ marginBottom: settingsOpen ? 14 : 0 }}
         >
           <div>
             <h2 className="section-title" style={{ marginBottom: 4 }}>
               Conversation practice
             </h2>
             <div className="meta-text">
-              Start a session and reply naturally in Danish.
+              Configure your session here, then start it from the chat area below.
             </div>
           </div>
 
@@ -1226,7 +1233,7 @@ export default function PracticePage() {
         </div>
 
         {settingsOpen && (
-          <div className="mini-box" style={{ marginBottom: 14 }}>
+          <div className="mini-box" style={{ marginBottom: 0 }}>
             <h3 className="subsection-title">Practice settings</h3>
 
             <div className="controls-row">
@@ -1280,18 +1287,6 @@ export default function PracticePage() {
               </div>
             </div>
           </div>
-        )}
-
-        {!allPhrasesUsed && (
-          <button
-            onClick={() => void startPractice()}
-            disabled={loading || selectedCards.length === 0}
-            className={`button-primary button-primary-large ${
-              loading || selectedCards.length === 0 ? "button-disabled" : ""
-            }`}
-          >
-            {loading ? "Starting..." : "Start practice"}
-          </button>
         )}
       </div>
 
@@ -1507,9 +1502,49 @@ export default function PracticePage() {
       </div>
 
       <div className="chat-shell">
-        <h2 className="section-title" style={{ marginBottom: 12 }}>
-          Chat
-        </h2>
+        <div
+          className="controls-row-spread"
+          style={{ marginBottom: 12, gap: 12, flexWrap: "wrap", alignItems: "center" }}
+        >
+          <div>
+            <h2 className="section-title" style={{ marginBottom: 4 }}>
+              Chat
+            </h2>
+            <div className="meta-text">
+              {selectedCards.length > 0
+                ? `${selectedCards.length} target phrase${selectedCards.length === 1 ? "" : "s"} selected`
+                : "No target phrases selected yet"}
+            </div>
+            <div className="meta-text">
+              Source: {practiceSourceLabel} · Count: {practiceCount}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button
+              onClick={() => setSettingsOpen((prev) => !prev)}
+              className="button-secondary"
+            >
+              {settingsOpen ? "Hide settings" : "Show settings"}
+            </button>
+
+            {!allPhrasesUsed && (
+              <button
+                onClick={() => void startPractice()}
+                disabled={loading || selectedCards.length === 0}
+                className={`button-primary ${
+                  loading || selectedCards.length === 0 ? "button-disabled" : ""
+                }`}
+              >
+                {loading
+                  ? "Starting..."
+                  : messages.length > 0
+                    ? "Restart practice"
+                    : "Start practice"}
+              </button>
+            )}
+          </div>
+        </div>
 
         <div className="chat-box" style={{ marginBottom: 16 }}>
           {messages.length === 0 ? (
