@@ -1412,26 +1412,42 @@ export default function PracticePage() {
         gap: 6,
         padding: "4px 8px",
         borderRadius: 999,
-        background: "#f3f4f6",
+        background:
+  usedPhraseSet.includes(card.phrase)
+    ? "#dcfce7"
+    : "#f3f4f6",
         fontSize: 13,
         cursor: "help",
         position: "relative",
       }}
       onClick={() => {
-  const phraseToInsert = card.phrase;
+  const phrase = card.phrase;
 
-  setInput((prev) => {
-    if (!prev.trim()) return phraseToInsert;
+  const textarea = inputRef.current;
+  if (!textarea) return;
 
-    // avoid double spaces
-    if (prev.endsWith(" ")) return prev + phraseToInsert;
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
 
-    return prev + " " + phraseToInsert;
-  });
+  const before = input.slice(0, start);
+  const after = input.slice(end);
 
-  // focus back to textarea
+  const needsSpaceBefore = before && !before.endsWith(" ");
+  const needsSpaceAfter = after && !after.startsWith(" ");
+
+  const newValue =
+    before +
+    (needsSpaceBefore ? " " : "") +
+    phrase +
+    (needsSpaceAfter ? " " : "") +
+    after;
+
+  setInput(newValue);
+
   setTimeout(() => {
-    inputRef.current?.focus();
+    const pos = (before + (needsSpaceBefore ? " " : "") + phrase).length;
+    textarea.focus();
+    textarea.setSelectionRange(pos, pos);
   }, 0);
 }}
       onMouseEnter={() => setHoveredPhraseId(card.id)}
