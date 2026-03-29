@@ -39,23 +39,42 @@ const assistantReplyUsesForbiddenPhrase = (
 const assistantReplySoundsLikeLearner = (reply: string) => {
   const normalized = normalizeText(reply);
 
-  const suspiciousStarts = ["jeg ", "mig ", "min ", "mit ", "mine "];
-
-  const suspiciousPhrases = [
-    "jeg plejer",
-    "jeg plejer at",
-    "jeg har",
-    "jeg bor",
-    "jeg arbejder",
-    "jeg studerer",
-    "jeg synes at",
-    "for mig",
+  const badMetaLearnerPatterns = [
+    "jeg lærer dansk",
+    "jeg prøver at lære",
+    "jeg øver mig på",
     "i mit liv",
+    "for mig er det",
   ];
 
-  return (
-    suspiciousStarts.some((start) => normalized.startsWith(start)) ||
-    suspiciousPhrases.some((phrase) => normalized.includes(phrase))
+  return badMetaLearnerPatterns.some((pattern) =>
+    normalized.includes(pattern)
+  );
+};
+
+const assistantBreaksRole = (reply: string) => {
+  const normalized = normalizeText(reply);
+
+  const badNarrativePatterns = [
+    "jeg havde",
+    "jeg var",
+    "jeg oplevede",
+    "jeg rejste",
+    "jeg gjorde",
+    "jeg havde forventet",
+    "jeg savnede",
+    "jeg nød",
+    "jeg tog",
+    "jeg prøvede",
+    "jeg fandt ud af",
+    "jeg besøgte",
+    "jeg boede",
+    "jeg kom til",
+    "jeg blev nødt til",
+  ];
+
+  return badNarrativePatterns.some((pattern) =>
+    normalized.includes(pattern)
   );
 };
 
@@ -269,6 +288,58 @@ ${phraseList.map((p) => `- ${p}`).join("\n")}`,
 
       if (secondRewrittenReply) {
         reply = secondRewrittenReply;
+      }
+    }
+
+    if (assistantBreaksRole(reply)) {
+      const roleFixResponse = await client.responses.create({
+        model: "gpt-4.1-mini",
+        input: [
+          {
+            role: "system",
+            content: `You are fixing a Danish assistant reply.
+
+The reply currently sounds like the assistant is speaking about its own experience.
+This is wrong for this app.
+
+Your task:
+- rewrite the reply so that the assistant is clearly the OTHER speaker
+- react to the learner's message instead
+- do NOT introduce your own story
+- do NOT invent your own past events
+- keep it natural and conversational
+- keep it short (1-2 sentences)
+- prefer reacting + asking a question
+- do NOT use any forbidden target phrases
+- do NOT use them without leading "at"
+
+Forbidden target phrases:
+${phraseList.map((p) => `- ${p}`).join("\n")}
+
+Bad example:
+"Ja, vejret var meget bedre, end jeg havde forventet"
+
+Good style:
+"Det lyder virkelig dejligt. Hvad kunne du bedst lide ved det?"
+
+Return ONLY the Danish reply.`,
+          },
+          {
+            role: "user",
+            content: reply,
+          },
+        ],
+        text: {
+          format: {
+            type: "text",
+          },
+        },
+      });
+
+      const fixedRoleReply = roleFixResponse.output_text?.trim();
+
+      if (fixedRoleReply) {
+        reply = fixedRoleReply;
       }
     }
 
