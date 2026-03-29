@@ -71,6 +71,14 @@ const assistantBreaksRole = (reply: string) => {
     "jeg boede",
     "jeg kom til",
     "jeg blev nødt til",
+
+    // 👇 NEW IMPORTANT ONES
+    "jeg skal",
+    "jeg skulle",
+    "jeg må",
+    "jeg måtte",
+    "jeg arbejder",
+    "jeg studerer",
   ];
 
   return badNarrativePatterns.some((pattern) =>
