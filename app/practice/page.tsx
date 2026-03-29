@@ -93,6 +93,15 @@ const sortByPhraseDa = (cards: PhraseCard[]) =>
 const escapeRegExp = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+const shuffle = <T,>(items: T[]) => {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+};
+
 export default function PracticePage() {
   const [cards, setCards] = useState<PhraseCard[]>([]);
   const [selectedCards, setSelectedCards] = useState<PhraseCard[]>([]);
@@ -198,6 +207,18 @@ export default function PracticePage() {
     });
   };
 
+  const pickFromPriorityPool = (pool: PhraseCard[], count: number) => {
+    const sorted = getPrioritySorted(pool);
+
+    if (count <= 0) return [];
+    if (sorted.length <= count) return sorted;
+
+    const bandSize = Math.min(Math.max(count * 3, count + 2), sorted.length);
+    const topBand = sorted.slice(0, bandSize);
+
+    return shuffle(topBand).slice(0, count);
+  };
+
   const pickPracticeCards = (
     allCards: PhraseCard[],
     count: number,
@@ -218,12 +239,12 @@ export default function PracticePage() {
       fallbackPool = [];
     }
 
-    const pickedFromPreferred = getPrioritySorted(preferredPool).slice(0, count);
+    const pickedFromPreferred = pickFromPriorityPool(preferredPool, count);
 
     if (pickedFromPreferred.length >= count) return pickedFromPreferred;
 
     const remainingCount = count - pickedFromPreferred.length;
-    const pickedFromFallback = getPrioritySorted(fallbackPool).slice(0, remainingCount);
+    const pickedFromFallback = pickFromPriorityPool(fallbackPool, remainingCount);
 
     return [...pickedFromPreferred, ...pickedFromFallback];
   };
@@ -488,7 +509,6 @@ export default function PracticePage() {
     const picked = pickPracticeCards(cards, practiceCount, practiceSource, selectedIds);
     setSelectedCards(picked);
 
-    // Treat "selected" as a one-time handoff from the main page, not a sticky mode.
     if (practiceSource === "selected" && selectedIds.length > 0) {
       setPracticeSource("all");
       setSelectedIds([]);
