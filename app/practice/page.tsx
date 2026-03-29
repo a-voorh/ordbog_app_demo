@@ -1360,7 +1360,7 @@ export default function PracticePage() {
                       savingLookupDraft ? "button-disabled" : ""
                     }`}
                   >
-                    {savingLookupDraft ? "Saving..." : "Create draft"}
+                    {savingLookupDraft ? "Saving..." : "Create new draft"}
                   </button>
                 </div>
               </div>
