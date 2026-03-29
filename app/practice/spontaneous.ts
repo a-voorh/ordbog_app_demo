@@ -8,6 +8,8 @@ type PhraseRow = {
   phrase: string;
   created_at: string | null;
   times_attempted: number | null;
+  times_correct: number | null;
+  times_almost: number | null;
   last_practiced_at: string | null;
   last_spontaneous_used_at: string | null;
   times_spontaneous_correct: number | null;
@@ -42,6 +44,8 @@ const RECENT_UNTRAINED_DAYS = 10;
 const UNLIMITED_POOL_THRESHOLD = 500;
 const LARGE_DB_FIRST_TURN_CAP = 120;
 const LARGE_DB_LATER_TURN_CAP = 60;
+const SPONTANEOUS_MASTERY_BONUS_MIN_ATTEMPTS = 1;
+const SPONTANEOUS_MASTERY_BONUS_MAX_ATTEMPTS = 3;
 
 const normalizeText = (value: string) =>
   value
@@ -91,7 +95,12 @@ const getFilteredNonTargetRows = (
       return false;
     }
 
-    if (isRecentWithinDays(row.last_spontaneous_used_at, RECENT_SPONTANEOUS_DAYS)) {
+    if (
+      isRecentWithinDays(
+        row.last_spontaneous_used_at,
+        RECENT_SPONTANEOUS_DAYS
+      )
+    ) {
       return false;
     }
 
@@ -100,7 +109,10 @@ const getFilteredNonTargetRows = (
     }
 
     const neverTrained = (row.times_attempted ?? 0) === 0;
-    const recentlyAdded = isRecentWithinDays(row.created_at, RECENT_UNTRAINED_DAYS);
+    const recentlyAdded = isRecentWithinDays(
+      row.created_at,
+      RECENT_UNTRAINED_DAYS
+    );
 
     if (neverTrained && recentlyAdded) {
       return false;
@@ -180,11 +192,9 @@ export async function evaluateAndApplySpontaneousUsage({
   const trimmedMessage = userMessage.trim();
   if (!trimmedMessage) return [];
 
-  const { data, error } = await supabase
-    .from("phrases")
-    .select(
-      "id, phrase, created_at, times_attempted, last_practiced_at, last_spontaneous_used_at, times_spontaneous_correct, times_spontaneous_almost, times_spontaneous_wrong"
-    );
+  const { data, error } = await supabase.from("phrases").select(
+    "id, phrase, created_at, times_attempted, times_correct, times_almost, last_practiced_at, last_spontaneous_used_at, times_spontaneous_correct, times_spontaneous_almost, times_spontaneous_wrong"
+  );
 
   if (error) {
     console.error(
@@ -309,26 +319,62 @@ ${trimmedMessage}`,
     const row = candidateMap.get(normalizeText(match.phrase));
     if (!row) continue;
 
-    const nextCorrect =
+    const nextSpontaneousCorrect =
       (row.times_spontaneous_correct ?? 0) +
       (match.status === "correct" ? 1 : 0);
 
-    const nextAlmost =
+    const nextSpontaneousAlmost =
       (row.times_spontaneous_almost ?? 0) +
       (match.status === "almost" ? 1 : 0);
 
-    const nextWrong =
+    const nextSpontaneousWrong =
       (row.times_spontaneous_wrong ?? 0) +
       (match.status === "wrong" ? 1 : 0);
 
+    const currentAttempts = row.times_attempted ?? 0;
+    const qualifiesForMasteryBoost =
+      currentAttempts >= SPONTANEOUS_MASTERY_BONUS_MIN_ATTEMPTS &&
+      currentAttempts <= SPONTANEOUS_MASTERY_BONUS_MAX_ATTEMPTS;
+
+    let nextAttempts = currentAttempts;
+    let nextCorrect = row.times_correct ?? 0;
+    let nextAlmost = row.times_almost ?? 0;
+    let nextLastPracticedAt = row.last_practiced_at;
+
+    if (qualifiesForMasteryBoost) {
+      if (match.status === "correct") {
+        nextAttempts += 1;
+        nextCorrect += 1;
+        nextLastPracticedAt = nowIso;
+      } else if (match.status === "almost") {
+        nextAttempts += 1;
+        nextAlmost += 1;
+        nextLastPracticedAt = nowIso;
+      }
+    }
+
+    const updatePayload: Record<string, string | number | null> = {
+      times_spontaneous_correct: nextSpontaneousCorrect,
+      times_spontaneous_almost: nextSpontaneousAlmost,
+      times_spontaneous_wrong: nextSpontaneousWrong,
+      last_spontaneous_used_at: nowIso,
+    };
+
+    if (qualifiesForMasteryBoost && match.status === "correct") {
+      updatePayload.times_attempted = nextAttempts;
+      updatePayload.times_correct = nextCorrect;
+      updatePayload.last_practiced_at = nextLastPracticedAt;
+    }
+
+    if (qualifiesForMasteryBoost && match.status === "almost") {
+      updatePayload.times_attempted = nextAttempts;
+      updatePayload.times_almost = nextAlmost;
+      updatePayload.last_practiced_at = nextLastPracticedAt;
+    }
+
     const { error: updateError } = await supabase
       .from("phrases")
-      .update({
-        times_spontaneous_correct: nextCorrect,
-        times_spontaneous_almost: nextAlmost,
-        times_spontaneous_wrong: nextWrong,
-        last_spontaneous_used_at: nowIso,
-      })
+      .update(updatePayload)
       .eq("id", row.id);
 
     if (updateError) {
