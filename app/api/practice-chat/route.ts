@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import { createClient } from "@supabase/supabase-js";
+import { evaluateAndApplySpontaneousUsage } from "../../practice/spontaneous";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -71,8 +73,6 @@ const assistantBreaksRole = (reply: string) => {
     "jeg boede",
     "jeg kom til",
     "jeg blev nødt til",
-
-    // 👇 NEW IMPORTANT ONES
     "jeg skal",
     "jeg skulle",
     "jeg må",
@@ -91,6 +91,11 @@ export async function POST(req: Request) {
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
     const body = await req.json();
     const cards = body.cards || [];
@@ -371,7 +376,8 @@ Return ONLY the Danish reply.`,
 
     if (userMessage && userMessage.trim()) {
       const previousAssistantMessage =
-        [...(history as ChatMessage[])]
+        (history as ChatMessage[])
+          .slice()
           .reverse()
           .find(
             (msg) =>
@@ -756,6 +762,25 @@ ${userMessage}`,
         }
       } catch (err) {
         console.error("Failed to parse phrase feedback JSON:", detectionText, err);
+      }
+
+      // -----------------------------
+      // Spontaneous usage evaluation
+      // -----------------------------
+      const isFirstTurn =
+        !previousAssistantMessage || !previousAssistantMessage.trim();
+
+      try {
+        await evaluateAndApplySpontaneousUsage({
+          openai: client,
+          supabase,
+          userMessage,
+          previousAssistantMessage,
+          currentTargetPhrases: phraseList,
+          isFirstTurn,
+        });
+      } catch (err) {
+        console.error("Spontaneous tracking failed:", err);
       }
     }
 

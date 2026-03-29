@@ -476,10 +476,7 @@ export default function PracticePage() {
 
       setSelectedIds(parsedSelectedIds);
       setPracticeSource(parsedSelectedIds.length > 0 ? "selected" : "all");
-
-      if (parsedSelectedIds.length > 0) {
-        localStorage.removeItem("selected_phrase_ids");
-      }
+      localStorage.removeItem("selected_phrase_ids");
     };
 
     void initialize();
@@ -490,6 +487,12 @@ export default function PracticePage() {
 
     const picked = pickPracticeCards(cards, practiceCount, practiceSource, selectedIds);
     setSelectedCards(picked);
+
+    // Treat "selected" as a one-time handoff from the main page, not a sticky mode.
+    if (practiceSource === "selected" && selectedIds.length > 0) {
+      setPracticeSource("all");
+      setSelectedIds([]);
+    }
   }, [cards, practiceCount, practiceSource, selectedIds, messages.length]);
 
   useEffect(() => {
@@ -555,6 +558,10 @@ export default function PracticePage() {
 
   const endSession = () => {
     resetSessionUi();
+    if (practiceSource === "selected") {
+      setPracticeSource("all");
+      setSelectedIds([]);
+    }
   };
 
   const startPractice = async (cardsToPractice = selectedCards) => {
@@ -1395,106 +1402,105 @@ export default function PracticePage() {
             {selectedCards.length === 0 ? (
               <p>No saved phrases yet. Go back and add some first.</p>
             ) : (
-             <div
-  style={{
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 12,
-  }}
->
-  {selectedCards.map((card) => (
-    <div
-      key={card.id}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "4px 8px",
-        borderRadius: 999,
-        background:
-  usedPhraseSet.includes(card.phrase)
-    ? "#dcfce7"
-    : "#f3f4f6",
-        fontSize: 13,
-        cursor: "help",
-        position: "relative",
-      }}
-      onClick={() => {
-  const phrase = card.phrase;
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 8,
+                  marginBottom: 12,
+                }}
+              >
+                {selectedCards.map((card) => (
+                  <div
+                    key={card.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 8px",
+                      borderRadius: 999,
+                      background: usedPhraseSet.includes(card.phrase)
+                        ? "#dcfce7"
+                        : "#f3f4f6",
+                      fontSize: 13,
+                      cursor: "help",
+                      position: "relative",
+                    }}
+                    onClick={() => {
+                      const phrase = card.phrase;
 
-  const textarea = inputRef.current;
-  if (!textarea) return;
+                      const textarea = inputRef.current;
+                      if (!textarea) return;
 
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
+                      const start = textarea.selectionStart;
+                      const end = textarea.selectionEnd;
 
-  const before = input.slice(0, start);
-  const after = input.slice(end);
+                      const before = input.slice(0, start);
+                      const after = input.slice(end);
 
-  const needsSpaceBefore = before && !before.endsWith(" ");
-  const needsSpaceAfter = after && !after.startsWith(" ");
+                      const needsSpaceBefore = before && !before.endsWith(" ");
+                      const needsSpaceAfter = after && !after.startsWith(" ");
 
-  const newValue =
-    before +
-    (needsSpaceBefore ? " " : "") +
-    phrase +
-    (needsSpaceAfter ? " " : "") +
-    after;
+                      const newValue =
+                        before +
+                        (needsSpaceBefore ? " " : "") +
+                        phrase +
+                        (needsSpaceAfter ? " " : "") +
+                        after;
 
-  setInput(newValue);
+                      setInput(newValue);
 
-  setTimeout(() => {
-    const pos = (before + (needsSpaceBefore ? " " : "") + phrase).length;
-    textarea.focus();
-    textarea.setSelectionRange(pos, pos);
-  }, 0);
-}}
-      onMouseEnter={() => setHoveredPhraseId(card.id)}
-      onMouseLeave={() =>
-        setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
-      }
-    >
-      <span>{getPhraseStatusSymbol(card.phrase)}</span>
+                      setTimeout(() => {
+                        const pos = (before + (needsSpaceBefore ? " " : "") + phrase).length;
+                        textarea.focus();
+                        textarea.setSelectionRange(pos, pos);
+                      }, 0);
+                    }}
+                    onMouseEnter={() => setHoveredPhraseId(card.id)}
+                    onMouseLeave={() =>
+                      setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
+                    }
+                  >
+                    <span>{getPhraseStatusSymbol(card.phrase)}</span>
 
-      <span style={{ fontWeight: 500 }}>
-        {card.phrase}
-      </span>
+                    <span style={{ fontWeight: 500 }}>
+                      {card.phrase}
+                    </span>
 
-      {hoveredPhraseId === card.id && (
-        <div
-          style={{
-            position: "absolute",
-            top: "120%",
-            left: 0,
-            zIndex: 20,
-            minWidth: 220,
-            maxWidth: 300,
-            background: "#fff",
-            border: "1px solid #ddd",
-            borderRadius: 10,
-            padding: 10,
-            boxShadow: "0 8px 20px rgba(0,0,0,0.12)",
-          }}
-        >
-          <div style={{ fontWeight: 600 }}>
-            {card.phrase}
-          </div>
+                    {hoveredPhraseId === card.id && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: "120%",
+                          left: 0,
+                          zIndex: 20,
+                          minWidth: 220,
+                          maxWidth: 300,
+                          background: "#fff",
+                          border: "1px solid #ddd",
+                          borderRadius: 10,
+                          padding: 10,
+                          boxShadow: "0 8px 20px rgba(0,0,0,0.12)",
+                        }}
+                      >
+                        <div style={{ fontWeight: 600 }}>
+                          {card.phrase}
+                        </div>
 
-          {showEnglishInHover && (
-            <div style={{ marginTop: 4, fontWeight: 500 }}>
-              {card.translation_en}
-            </div>
-          )}
+                        {showEnglishInHover && (
+                          <div style={{ marginTop: 4, fontWeight: 500 }}>
+                            {card.translation_en}
+                          </div>
+                        )}
 
-          <div style={{ marginTop: 4 }}>
-            {card.short_explanation}
-          </div>
-        </div>
-      )}
-    </div>
-  ))}
-</div>
+                        <div style={{ marginTop: 4 }}>
+                          {card.short_explanation}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
 
             {selectedCards.length > 0 && (
@@ -1570,9 +1576,9 @@ export default function PracticePage() {
                 {msg.role === "assistant" && (
                   <div style={{ marginTop: 10 }}>
                     <div
-  className="utility-actions"
-  style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
->
+                      className="utility-actions"
+                      style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
+                    >
                       <button
                         className="button-secondary button-small"
                         onClick={() => openAddPhraseFromMessage(i)}
@@ -1686,48 +1692,48 @@ export default function PracticePage() {
 
               <div className="composer-actions">
                 <div
-  style={{
-    display: "flex",
-    gap: 6,
-    flexWrap: "wrap",
-    alignItems: "center",
-  }}
->
-  {messages.length > 0 && (
-    <button
-      onClick={endSession}
-      disabled={loading}
-      className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
-    >
-      End
-    </button>
-  )}
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                  }}
+                >
+                  {messages.length > 0 && (
+                    <button
+                      onClick={endSession}
+                      disabled={loading}
+                      className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
+                    >
+                      End
+                    </button>
+                  )}
 
-  {canRegenerate && (
-    <button
-      onClick={() => void regenerateAnswer()}
-      disabled={loading}
-      className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
-    >
-      Retry
-    </button>
-  )}
+                  {canRegenerate && (
+                    <button
+                      onClick={() => void regenerateAnswer()}
+                      disabled={loading}
+                      className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
+                    >
+                      Retry
+                    </button>
+                  )}
 
-  {canRegenerate &&
-    lastPhraseFeedback.some(
-      (item) => item.status === "wrong" || item.status === "almost"
-    ) && (
-      <button
-        onClick={startTryAgain}
-        disabled={loading || reviewingSecondOpinion}
-        className={`button-secondary button-small ${
-          loading || reviewingSecondOpinion ? "button-disabled" : ""
-        }`}
-      >
-        Fix
-      </button>
-    )}
-</div>
+                  {canRegenerate &&
+                    lastPhraseFeedback.some(
+                      (item) => item.status === "wrong" || item.status === "almost"
+                    ) && (
+                      <button
+                        onClick={startTryAgain}
+                        disabled={loading || reviewingSecondOpinion}
+                        className={`button-secondary button-small ${
+                          loading || reviewingSecondOpinion ? "button-disabled" : ""
+                        }`}
+                      >
+                        Fix
+                      </button>
+                    )}
+                </div>
 
                 <div className="send-button-wrap">
                   <button
