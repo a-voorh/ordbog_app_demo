@@ -403,6 +403,7 @@ export default function Home() {
       });
 
       const data = await res.json();
+
       if (!res.ok) {
         console.error("Lookup backend error:", data);
         setLookupStatus("Could not look that up.");
@@ -1387,23 +1388,23 @@ export default function Home() {
         >
           <Link href="/practice" className="link-reset">
             <span
-  className="nav-button button-full"
-  style={{
-    display: "block",
-    textAlign: "center",
-    padding: "14px 16px",
-    fontSize: 16,
-  }}
->
+              className="nav-button button-full"
+              style={{
+                display: "block",
+                textAlign: "center",
+                padding: "14px 16px",
+                fontSize: 16,
+              }}
+            >
               Practice Mode →
             </span>
           </Link>
 
           {selectedForPractice.length > 0 && (
             <button
-  onClick={clearPracticeSelection}
-  className="button-secondary button-full"
->
+              onClick={clearPracticeSelection}
+              className="button-secondary button-full"
+            >
               Clear selected phrases ({selectedForPractice.length})
             </button>
           )}
@@ -1451,30 +1452,30 @@ export default function Home() {
           />
 
           <div className="inline-action-row">
-  <button
-    onClick={() => void createDraftFromPhrase()}
-    className="button-primary"
-    style={{
-      padding: "14px 16px",
-      fontSize: 16,
-    }}
-    disabled={loading || savingPhraseToPendingDraft}
-  >
-    {loading ? "Analyzing..." : "Analyze"}
-  </button>
+            <button
+              onClick={() => void createDraftFromPhrase()}
+              className="button-primary"
+              style={{
+                padding: "14px 16px",
+                fontSize: 16,
+              }}
+              disabled={loading || savingPhraseToPendingDraft}
+            >
+              {loading ? "Analyzing..." : "Analyze"}
+            </button>
 
-  <button
-    onClick={() => void createPendingDraftFromPhrase()}
-    className="button-secondary"
-    style={{
-      padding: "14px 16px",
-      fontSize: 16,
-    }}
-    disabled={loading || savingPhraseToPendingDraft}
-  >
-    {savingPhraseToPendingDraft ? "Saving..." : "Create draft"}
-  </button>
-</div>
+            <button
+              onClick={() => void createPendingDraftFromPhrase()}
+              className="button-secondary"
+              style={{
+                padding: "14px 16px",
+                fontSize: 16,
+              }}
+              disabled={loading || savingPhraseToPendingDraft}
+            >
+              {savingPhraseToPendingDraft ? "Saving..." : "Create draft"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1882,56 +1883,69 @@ export default function Home() {
                   className="controls-row"
                   style={{ justifyContent: "space-between", alignItems: "flex-start" }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      flexWrap: "wrap",
-                      cursor: "pointer",
-                      flex: 1,
-                    }}
-                    onClick={() =>
-                      setExpandedPendingDraftId(expanded ? null : draft.id)
-                    }
-                  >
-                    <span style={{ fontWeight: 600, fontSize: 16 }}>{draft.phrase}</span>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flex: 1 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        cursor: "pointer",
+                        flex: 1,
+                      }}
+                      onClick={() =>
+                        setExpandedPendingDraftId(expanded ? null : draft.id)
+                      }
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 16 }}>{draft.phrase}</span>
 
-                    {visibleTags.map((tag) => (
-                      <span key={tag} className="badge" style={tagPillStyle(tag)}>
-                        {tag}
-                      </span>
-                    ))}
+                      {visibleTags.map((tag) => (
+                        <span key={tag} className="badge" style={tagPillStyle(tag)}>
+                          {tag}
+                        </span>
+                      ))}
 
-                    {draft.tags.length > 4 && !showAllTags && (
-                      <button
-                        className="tag-pill"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowAllTagsByPendingDraft((prev) => ({
-                            ...prev,
-                            [draft.id]: true,
-                          }));
-                        }}
-                      >
-                        +{draft.tags.length - 4} more
-                      </button>
-                    )}
+                      {draft.tags.length > 4 && !showAllTags && (
+                        <button
+                          className="tag-pill"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowAllTagsByPendingDraft((prev) => ({
+                              ...prev,
+                              [draft.id]: true,
+                            }));
+                          }}
+                        >
+                          +{draft.tags.length - 4} more
+                        </button>
+                      )}
 
-                    {draft.tags.length > 4 && showAllTags && (
-                      <button
-                        className="tag-pill"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowAllTagsByPendingDraft((prev) => ({
-                            ...prev,
-                            [draft.id]: false,
-                          }));
-                        }}
-                      >
-                        show less
-                      </button>
-                    )}
+                      {draft.tags.length > 4 && showAllTags && (
+                        <button
+                          className="tag-pill"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowAllTagsByPendingDraft((prev) => ({
+                              ...prev,
+                              [draft.id]: false,
+                            }));
+                          }}
+                        >
+                          show less
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="button-secondary button-small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedPendingDraftId(expanded ? null : draft.id);
+                      }}
+                    >
+                      {expanded ? "Close" : "Open"}
+                    </button>
                   </div>
 
                   <div className="inline-row">
@@ -2268,7 +2282,7 @@ export default function Home() {
               <div className="mini-box" style={{ marginTop: 0 }}>
                 <h3 className="subsection-title">Manage tags</h3>
 
-               <div className="inline-action-row">
+                <div className="inline-action-row">
                   <input
                     value={renameFrom}
                     onChange={(e) => setRenameFrom(e.target.value)}
@@ -2321,45 +2335,65 @@ export default function Home() {
                   <div
                     style={{
                       display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      flexWrap: "wrap",
-                      cursor: "pointer",
+                      alignItems: "flex-start",
+                      gap: 12,
                       flex: 1,
                     }}
-                    onClick={() => setExpandedId(expanded ? null : card.id)}
                   >
-                    <span style={{ fontWeight: 600, fontSize: 16 }}>{card.phrase}</span>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        cursor: "pointer",
+                        flex: 1,
+                      }}
+                      onClick={() => setExpandedId(expanded ? null : card.id)}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: 16 }}>{card.phrase}</span>
 
-                    {visibleTags.map((tag) => (
-                      <span key={tag} className="badge" style={tagPillStyle(tag)}>
-                        {tag}
-                      </span>
-                    ))}
+                      {visibleTags.map((tag) => (
+                        <span key={tag} className="badge" style={tagPillStyle(tag)}>
+                          {tag}
+                        </span>
+                      ))}
 
-                    {card.tags.length > 4 && !showAllTags && (
-                      <button
-                        className="tag-pill"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowAllTagsByCard((prev) => ({ ...prev, [card.id]: true }));
-                        }}
-                      >
-                        +{card.tags.length - 4} more
-                      </button>
-                    )}
+                      {card.tags.length > 4 && !showAllTags && (
+                        <button
+                          className="tag-pill"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowAllTagsByCard((prev) => ({ ...prev, [card.id]: true }));
+                          }}
+                        >
+                          +{card.tags.length - 4} more
+                        </button>
+                      )}
 
-                    {card.tags.length > 4 && showAllTags && (
-                      <button
-                        className="tag-pill"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setShowAllTagsByCard((prev) => ({ ...prev, [card.id]: false }));
-                        }}
-                      >
-                        show less
-                      </button>
-                    )}
+                      {card.tags.length > 4 && showAllTags && (
+                        <button
+                          className="tag-pill"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowAllTagsByCard((prev) => ({ ...prev, [card.id]: false }));
+                          }}
+                        >
+                          show less
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      className="button-secondary button-small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedId(expanded ? null : card.id);
+                      }}
+                    >
+                      {expanded ? "Close" : "Open"}
+                    </button>
                   </div>
                 </div>
 
