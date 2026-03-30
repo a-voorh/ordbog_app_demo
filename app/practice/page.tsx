@@ -47,6 +47,7 @@ type PhraseFeedback = {
   detectedText: string;
   sentenceIssue: "none" | "minor" | "major";
   sentenceComment: string;
+  correctedSentence: string;
 };
 
 type PracticeResponse = {
@@ -1859,6 +1860,12 @@ export default function PracticePage() {
                     {item.sentenceIssue !== "none" && item.sentenceComment && (
                       <div style={{ marginTop: 4 }}>
                         <em>Grammar elsewhere:</em> {item.sentenceComment}
+                      </div>
+                    )}
+
+                    {item.correctedSentence && (
+                      <div style={{ marginTop: 4 }}>
+                        <em>Corrected sentence:</em> {item.correctedSentence}
                       </div>
                     )}
                   </li>

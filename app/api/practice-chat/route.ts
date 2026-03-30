@@ -364,6 +364,7 @@ Return ONLY the Danish reply.`,
       detectedText: string;
       sentenceIssue: "none" | "minor" | "major";
       sentenceComment: string;
+      correctedSentence: string;
     }> = phraseList.map((phrase) => ({
       phrase,
       status: "unused",
@@ -372,6 +373,7 @@ Return ONLY the Danish reply.`,
       detectedText: "",
       sentenceIssue: "none",
       sentenceComment: "",
+      correctedSentence: "",
     }));
 
     if (userMessage && userMessage.trim()) {
@@ -575,6 +577,16 @@ Very important:
 - Do NOT punish the learner for forgetting commas.
 - Only mention punctuation if it seriously changes meaning or makes the sentence hard to understand.
 
+If sentenceIssue is "minor" or "major", provide a short natural corrected version of the learner's full sentence in correctedSentence.
+If sentenceIssue is "none", correctedSentence must be empty.
+
+Rules for correctedSentence:
+- keep the learner's intended meaning
+- keep it simple and natural
+- do not rewrite more than needed
+- if the learner sentence is already fine overall, leave it empty
+- correctedSentence should be the full corrected learner sentence, not just the target phrase
+
 --------------------------------
 7. UNUSED PHRASES (IMPORTANT TONE)
 --------------------------------
@@ -693,7 +705,8 @@ Return ONLY valid JSON with exactly this structure:
       "suggestion": "short corrected version or empty string",
       "detectedText": "exact matching text from learner message or empty string",
       "sentenceIssue": "none | minor | major",
-      "sentenceComment": "short explanation of grammar issue outside the target phrase, or empty string"
+      "sentenceComment": "short explanation of grammar issue outside the target phrase, or empty string",
+      "correctedSentence": "full corrected learner sentence or empty string"
     }
   ]
 }`,
@@ -732,6 +745,7 @@ ${userMessage}`,
                         enum: ["none", "minor", "major"],
                       },
                       sentenceComment: { type: "string" },
+                      correctedSentence: { type: "string" },
                     },
                     required: [
                       "phrase",
@@ -741,6 +755,7 @@ ${userMessage}`,
                       "detectedText",
                       "sentenceIssue",
                       "sentenceComment",
+                      "correctedSentence",
                     ],
                     additionalProperties: false,
                   },
@@ -761,7 +776,11 @@ ${userMessage}`,
           phraseFeedback = parsedDetection.phraseFeedback;
         }
       } catch (err) {
-        console.error("Failed to parse phrase feedback JSON:", detectionText, err);
+        console.error(
+          "Failed to parse phrase feedback JSON:",
+          detectionText,
+          err
+        );
       }
 
       // -----------------------------
