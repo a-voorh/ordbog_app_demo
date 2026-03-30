@@ -122,6 +122,9 @@ export default function PracticePage() {
   const [addingPhrase, setAddingPhrase] = useState(false);
   const [addPhraseStatus, setAddPhraseStatus] = useState<string | null>(null);
 
+  const [addFromFeedbackPhrase, setAddFromFeedbackPhrase] = useState<string | null>(null);
+  const [candidateFeedbackPhrase, setCandidateFeedbackPhrase] = useState("");
+
   const [hoveredPhraseId, setHoveredPhraseId] = useState<string | null>(null);
 
   const [messageTranslations, setMessageTranslations] = useState<Record<number, string>>({});
@@ -559,6 +562,8 @@ export default function PracticePage() {
     setCandidatePhrase("");
     setAddPhraseStatus(null);
     setAddingPhrase(false);
+    setAddFromFeedbackPhrase(null);
+    setCandidateFeedbackPhrase("");
     setMessageTranslations({});
     setShowTranslationByMessage({});
     setTranslatingMessageIndex(null);
@@ -746,6 +751,8 @@ export default function PracticePage() {
     setAddFromMessageIndex(null);
     setCandidatePhrase("");
     setAddPhraseStatus(null);
+    setAddFromFeedbackPhrase(null);
+    setCandidateFeedbackPhrase("");
     setSecondOpinionNote(null);
 
     try {
@@ -866,6 +873,8 @@ export default function PracticePage() {
     setAddFromMessageIndex(null);
     setCandidatePhrase("");
     setAddPhraseStatus(null);
+    setAddFromFeedbackPhrase(null);
+    setCandidateFeedbackPhrase("");
     setSecondOpinionNote(null);
 
     setTimeout(() => {
@@ -981,6 +990,8 @@ export default function PracticePage() {
     setAddFromMessageIndex(null);
     setCandidatePhrase("");
     setAddPhraseStatus(null);
+    setAddFromFeedbackPhrase(null);
+    setCandidateFeedbackPhrase("");
     setSecondOpinionNote(null);
 
     try {
@@ -1127,6 +1138,100 @@ export default function PracticePage() {
       }, 2200);
     } catch (err) {
       console.error("Failed to add phrase draft from message:", err);
+      setAddPhraseStatus("Something went wrong.");
+    } finally {
+      setAddingPhrase(false);
+    }
+  };
+
+  const savePhraseFromFeedback = async () => {
+    const rawPhrase = candidateFeedbackPhrase.trim();
+    if (!rawPhrase) return;
+
+    setAddingPhrase(true);
+    setAddPhraseStatus(null);
+
+    try {
+      const parsed = await analyzePhrase(rawPhrase);
+      if (!parsed) {
+        setAddPhraseStatus("Could not analyze that phrase.");
+        return;
+      }
+
+      const correctedPhrase = parsed.corrected_phrase.trim();
+      const newKey = normalizePhraseKey(correctedPhrase);
+
+      const duplicateInCards = cards.some(
+        (card) => normalizePhraseKey(card.phrase) === newKey
+      );
+
+      if (duplicateInCards) {
+        setAddPhraseStatus(`Already in database: ${correctedPhrase}`);
+        return;
+      }
+
+      const { data: existingDrafts, error: draftsLoadError } = await supabase
+        .from("phrase_drafts")
+        .select("phrase");
+
+      if (draftsLoadError) {
+        console.error("Failed to check existing drafts:", draftsLoadError);
+        setAddPhraseStatus("Could not check drafts.");
+        return;
+      }
+
+      const duplicateInDrafts = (existingDrafts || []).some(
+        (draft: { phrase: string }) =>
+          normalizePhraseKey(draft.phrase) === newKey
+      );
+
+      if (duplicateInDrafts) {
+        setAddPhraseStatus(`Already waiting in drafts: ${correctedPhrase}`);
+        return;
+      }
+
+      const autoTags =
+        practiceSource !== "all" && practiceSource !== "selected"
+          ? [practiceSource]
+          : [];
+
+      const newDraft: PhraseDraft = {
+        id: crypto.randomUUID(),
+        phrase: correctedPhrase,
+        translation_en: parsed.translation_en,
+        short_explanation: parsed.short_explanation_da,
+        example_da: parsed.example_da,
+        example_en: parsed.example_en,
+        extra_info: parsed.extra_info,
+        tags: autoTags,
+        created_at: new Date().toISOString(),
+        source: "practice_feedback",
+      };
+
+      const { error } = await supabase.from("phrase_drafts").insert(newDraft);
+
+      if (error) {
+        console.error("Failed to save phrase draft from feedback:", error);
+        setAddPhraseStatus("Failed to save draft.");
+        return;
+      }
+
+      setCandidateFeedbackPhrase("");
+      setAddFromFeedbackPhrase(null);
+      setAddPhraseStatus(null);
+
+      setDraftSavedMessage(`Draft created: ${correctedPhrase}`);
+
+      if (draftSavedTimeoutRef.current !== null) {
+        window.clearTimeout(draftSavedTimeoutRef.current);
+      }
+
+      draftSavedTimeoutRef.current = window.setTimeout(() => {
+        setDraftSavedMessage(null);
+        draftSavedTimeoutRef.current = null;
+      }, 2200);
+    } catch (err) {
+      console.error("Failed to add phrase draft from feedback:", err);
       setAddPhraseStatus("Something went wrong.");
     } finally {
       setAddingPhrase(false);
@@ -1865,7 +1970,81 @@ export default function PracticePage() {
 
                     {item.correctedSentence && (
                       <div style={{ marginTop: 4 }}>
-                        <em>Corrected sentence:</em> {item.correctedSentence}
+                        <div>
+                          <em>Corrected sentence:</em> {item.correctedSentence}
+                        </div>
+
+                        <div style={{ marginTop: 6 }}>
+                          <button
+                            className="button-secondary button-small"
+                            onClick={() => {
+                              const selectedText =
+                                window.getSelection?.()?.toString().trim() || "";
+                              setAddFromFeedbackPhrase(item.phrase);
+                              setCandidateFeedbackPhrase(
+                                selectedText || item.correctedSentence
+                              );
+                              setAddPhraseStatus(null);
+                            }}
+                          >
+                            Create draft from correction
+                          </button>
+                        </div>
+
+                        {addFromFeedbackPhrase === item.phrase && (
+                          <div className="mini-box" style={{ marginTop: 8 }}>
+                            <div className="meta-text" style={{ marginBottom: 8 }}>
+                              Select text from the corrected sentence above, or edit it here.
+                            </div>
+
+                            <div className="controls-row">
+                              <input
+                                value={candidateFeedbackPhrase}
+                                onChange={(e) =>
+                                  setCandidateFeedbackPhrase(e.target.value)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    if (!addingPhrase) {
+                                      void savePhraseFromFeedback();
+                                    }
+                                  }
+                                }}
+                                placeholder="Phrase to save as draft..."
+                                className="text-input"
+                                style={{ width: "100%", maxWidth: 300 }}
+                              />
+
+                              <button
+                                onClick={() => void savePhraseFromFeedback()}
+                                disabled={addingPhrase}
+                                className={`button-primary ${
+                                  addingPhrase ? "button-disabled" : ""
+                                }`}
+                              >
+                                {addingPhrase ? "Creating..." : "Create draft"}
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  setAddFromFeedbackPhrase(null);
+                                  setCandidateFeedbackPhrase("");
+                                  setAddPhraseStatus(null);
+                                }}
+                                className="button-secondary"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+
+                            {addPhraseStatus && (
+                              <div className="meta-text" style={{ marginTop: 8 }}>
+                                {addPhraseStatus}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </li>
