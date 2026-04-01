@@ -38,7 +38,7 @@ type EvaluateAndApplySpontaneousUsageArgs = {
   isFirstTurn?: boolean;
 };
 
-const RECENT_SPONTANEOUS_DAYS = 2;
+const RECENT_SPONTANEOUS_DAYS = 1;
 const RECENT_PRACTICE_DAYS = 1;
 const RECENT_UNTRAINED_DAYS = 9;
 const UNLIMITED_POOL_THRESHOLD = 500;
