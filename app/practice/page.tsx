@@ -14,11 +14,18 @@ type PhraseCard = {
   extra_info?: string | null;
   created_at: string;
   tags: string[];
-  times_attempted: number;
-  times_correct: number;
-  times_almost: number;
-  times_wrong: number;
-  last_practiced_at: string | null;
+  times_attempted?: number | null;
+  times_correct?: number | null;
+  times_almost?: number | null;
+  times_wrong?: number | null;
+  last_practiced_at?: string | null;
+  times_spontaneous_correct?: number | null;
+  times_spontaneous_almost?: number | null;
+  times_spontaneous_wrong?: number | null;
+  last_spontaneous_used_at?: string | null;
+  times_retry_correct?: number | null;
+  times_re_requested?: number | null;
+  last_requested_again_at?: string | null;
 };
 
 type PhraseDraft = {
@@ -196,6 +203,12 @@ export default function PracticePage() {
     return Math.max(0, Math.min(1, base + confidenceBonus - stalePenalty));
   };
 
+  const requestedAgainBoost = (card: PhraseCard) => {
+    const count = card.times_re_requested ?? 0;
+    if (count <= 0) return 0;
+    return Math.min(0.6, count * 0.18);
+  };
+
   const getPrioritySorted = (pool: PhraseCard[]) => {
     return [...pool].sort((a, b) => {
       const aDays = daysSinceLastPracticed(a) ?? -1;
@@ -204,8 +217,11 @@ export default function PracticePage() {
       const stalenessBoostA = aDays > 14 ? -0.15 : aDays > 7 ? -0.08 : 0;
       const stalenessBoostB = bDays > 14 ? -0.15 : bDays > 7 ? -0.08 : 0;
 
-      const aScore = effectiveMasteryScore(a) + stalenessBoostA;
-      const bScore = effectiveMasteryScore(b) + stalenessBoostB;
+      const aRequestedBoost = -requestedAgainBoost(a);
+      const bRequestedBoost = -requestedAgainBoost(b);
+
+      const aScore = effectiveMasteryScore(a) + stalenessBoostA + aRequestedBoost;
+      const bScore = effectiveMasteryScore(b) + stalenessBoostB + bRequestedBoost;
 
       return aScore - bScore;
     });
@@ -288,6 +304,56 @@ export default function PracticePage() {
     }
   };
 
+  const bumpRequestedAgain = async (phraseKey: string) => {
+    const existingCard = cards.find(
+      (card) => normalizePhraseKey(card.phrase) === phraseKey
+    );
+
+    if (!existingCard) return false;
+
+    const nextRequestedCount = (existingCard.times_re_requested ?? 0) + 1;
+    const nowIso = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("phrases")
+      .update({
+        times_re_requested: nextRequestedCount,
+        last_requested_again_at: nowIso,
+      })
+      .eq("id", existingCard.id);
+
+    if (error) {
+      console.error("Failed to bump requested-again stats:", error);
+      return true;
+    }
+
+    setCards((prev) =>
+      prev.map((card) =>
+        card.id === existingCard.id
+          ? {
+              ...card,
+              times_re_requested: nextRequestedCount,
+              last_requested_again_at: nowIso,
+            }
+          : card
+      )
+    );
+
+    setSelectedCards((prev) =>
+      prev.map((card) =>
+        card.id === existingCard.id
+          ? {
+              ...card,
+              times_re_requested: nextRequestedCount,
+              last_requested_again_at: nowIso,
+            }
+          : card
+      )
+    );
+
+    return true;
+  };
+
   const lookupWord = async () => {
     const english = lookupEnglish.trim();
     if (!english) return;
@@ -343,6 +409,7 @@ export default function PracticePage() {
       );
 
       if (duplicateInCards) {
+        await bumpRequestedAgain(newKey);
         setLookupStatus(`Already in database: ${correctedPhrase}`);
         return;
       }
@@ -461,11 +528,18 @@ export default function PracticePage() {
           supabase
             .from("phrases")
             .update({
-              times_attempted: card.times_attempted,
-              times_correct: card.times_correct,
-              times_almost: card.times_almost,
-              times_wrong: card.times_wrong,
+              times_attempted: card.times_attempted ?? 0,
+              times_correct: card.times_correct ?? 0,
+              times_almost: card.times_almost ?? 0,
+              times_wrong: card.times_wrong ?? 0,
               last_practiced_at: card.last_practiced_at,
+              times_spontaneous_correct: card.times_spontaneous_correct ?? 0,
+              times_spontaneous_almost: card.times_spontaneous_almost ?? 0,
+              times_spontaneous_wrong: card.times_spontaneous_wrong ?? 0,
+              last_spontaneous_used_at: card.last_spontaneous_used_at,
+              times_retry_correct: card.times_retry_correct ?? 0,
+              times_re_requested: card.times_re_requested ?? 0,
+              last_requested_again_at: card.last_requested_again_at,
             })
             .eq("id", card.id)
         )
@@ -479,6 +553,14 @@ export default function PracticePage() {
       });
 
       return updatedCards;
+    });
+
+    setSelectedCards((prevSelected) => {
+      const nextById = new Map(
+        updater(cards).map((card) => [card.id, card] as const)
+      );
+
+      return prevSelected.map((card) => nextById.get(card.id) ?? card);
     });
   };
 
@@ -714,11 +796,16 @@ export default function PracticePage() {
       const almostDelta = newAlmost - oldAlmost;
       const wrongDelta = newWrong - oldWrong;
 
+      const shouldCountRetryCorrect =
+        rawNewStatus === "correct" &&
+        (oldStatus === "wrong" || oldStatus === "almost");
+
       if (
         attemptDelta === 0 &&
         correctDelta === 0 &&
         almostDelta === 0 &&
-        wrongDelta === 0
+        wrongDelta === 0 &&
+        !shouldCountRetryCorrect
       ) {
         return card;
       }
@@ -729,6 +816,10 @@ export default function PracticePage() {
         times_correct: Math.max(0, (card.times_correct ?? 0) + correctDelta),
         times_almost: Math.max(0, (card.times_almost ?? 0) + almostDelta),
         times_wrong: Math.max(0, (card.times_wrong ?? 0) + wrongDelta),
+        times_retry_correct: Math.max(
+          0,
+          (card.times_retry_correct ?? 0) + (shouldCountRetryCorrect ? 1 : 0)
+        ),
         last_practiced_at: nowIso,
       };
     });
@@ -1072,6 +1163,7 @@ export default function PracticePage() {
       );
 
       if (duplicateInCards) {
+        await bumpRequestedAgain(newKey);
         setAddPhraseStatus(`Already in database: ${correctedPhrase}`);
         return;
       }
@@ -1166,6 +1258,7 @@ export default function PracticePage() {
       );
 
       if (duplicateInCards) {
+        await bumpRequestedAgain(newKey);
         setAddPhraseStatus(`Already in database: ${correctedPhrase}`);
         return;
       }

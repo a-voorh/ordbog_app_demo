@@ -19,6 +19,13 @@ type PhraseCard = {
   times_almost?: number | null;
   times_wrong?: number | null;
   last_practiced_at?: string | null;
+  times_spontaneous_correct?: number | null;
+  times_spontaneous_almost?: number | null;
+  times_spontaneous_wrong?: number | null;
+  last_spontaneous_used_at?: string | null;
+  times_retry_correct?: number | null;
+  times_re_requested?: number | null;
+  last_requested_again_at?: string | null;
 };
 
 type PendingDraft = {
@@ -249,80 +256,97 @@ export default function Home() {
   const almostOf = (card: PhraseCard) => card.times_almost ?? 0;
   const wrongOf = (card: PhraseCard) => card.times_wrong ?? 0;
 
-  const daysSinceLastPracticed = (card: PhraseCard) => {
-    if (!card.last_practiced_at) return null;
-    const diffMs = Date.now() - new Date(card.last_practiced_at).getTime();
+  const spontaneousCorrectOf = (card: PhraseCard) =>
+    card.times_spontaneous_correct ?? 0;
+  const spontaneousAlmostOf = (card: PhraseCard) =>
+    card.times_spontaneous_almost ?? 0;
+  const spontaneousWrongOf = (card: PhraseCard) =>
+    card.times_spontaneous_wrong ?? 0;
+  const retryCorrectOf = (card: PhraseCard) => card.times_retry_correct ?? 0;
+  const reRequestedOf = (card: PhraseCard) => card.times_re_requested ?? 0;
+
+  const daysSinceIso = (iso?: string | null) => {
+    if (!iso) return null;
+    const diffMs = Date.now() - new Date(iso).getTime();
     return diffMs / (1000 * 60 * 60 * 24);
   };
 
-  const successScore = (card: PhraseCard) => {
-    const attempted = attemptsOf(card);
-    const correct = correctOf(card);
-    const almost = almostOf(card);
+  const daysSinceLastPracticed = (card: PhraseCard) =>
+    daysSinceIso(card.last_practiced_at);
 
-    if (attempted === 0) return 0;
-    return (correct + 0.8 * almost) / attempted;
+  const masteryPoints = (card: PhraseCard) => {
+    const promptedCorrect = correctOf(card) * 1.0;
+    const promptedAlmost = almostOf(card) * 0.6;
+    const promptedWrong = wrongOf(card) * -1.0;
+
+    const spontaneousCorrect = spontaneousCorrectOf(card) * 2.0;
+    const spontaneousAlmost = spontaneousAlmostOf(card) * 1.2;
+    const spontaneousWrong = spontaneousWrongOf(card) * 0.0;
+
+    const retryCorrect = retryCorrectOf(card) * 0.3;
+
+    const total =
+      promptedCorrect +
+      promptedAlmost +
+      promptedWrong +
+      spontaneousCorrect +
+      spontaneousAlmost +
+      spontaneousWrong +
+      retryCorrect;
+
+    return Math.max(0, total);
   };
 
-  const effectiveSuccessScore = (card: PhraseCard) => {
-    const attempted = attemptsOf(card);
-    if (attempted === 0) return 0;
+  const masteryLabel = (card: PhraseCard) => {
+    const points = masteryPoints(card);
 
-    const base = successScore(card);
-    const days = daysSinceLastPracticed(card);
-
-    let confidenceBonus = 0;
-    if (attempted >= 6) confidenceBonus = 0.12;
-    else if (attempted >= 3) confidenceBonus = 0.08;
-    else confidenceBonus = 0.04;
-
-    let stalePenalty = 0;
-    if (days !== null) {
-      if (days > 30) stalePenalty = 0.18;
-      else if (days > 14) stalePenalty = 0.1;
-      else if (days > 7) stalePenalty = 0.05;
-    }
-
-    return Math.max(0, Math.min(1, base + confidenceBonus - stalePenalty));
+    if (points < 2) return "new";
+    if (points < 5) return "familiar";
+    if (points < 9) return "active";
+    if (spontaneousCorrectOf(card) >= 1) return "automatic";
+    return "active";
   };
 
   const masteryColor = (card: PhraseCard) => {
-    const attempted = attemptsOf(card);
-    if (attempted < 3) return "#e5e7eb";
+    const label = masteryLabel(card);
 
-    const s = effectiveSuccessScore(card);
-    if (s < 0.45) return "#fca5a5";
-    if (s < 0.68) return "#fcd34d";
-    return "#86efac";
+    if (label === "new") return "#e5e7eb";
+    if (label === "familiar") return "#dbeafe";
+    if (label === "active") return "#dcfce7";
+    return "#fef3c7";
   };
 
-  const masteryText = (card: PhraseCard) => {
-    const attempted = attemptsOf(card);
-    if (attempted < 3) return `new (${attempted}/3)`;
-    return `${Math.round(effectiveSuccessScore(card) * 100)}%`;
+  const masteryText = (card: PhraseCard) => masteryLabel(card);
+
+  const masteryTextColor = (card: PhraseCard) => {
+    const label = masteryLabel(card);
+
+    if (label === "new") return "#374151";
+    if (label === "familiar") return "#1d4ed8";
+    if (label === "active") return "#166534";
+    return "#92400e";
   };
 
   const staleLabel = (card: PhraseCard) => {
     const days = daysSinceLastPracticed(card);
     if (days === null) return "";
     if (days > 30) return "stale";
-    if (days > 14) return "cooling off";
-    if (days > 7) return "needs review";
+    if (days > 14) return "needs review";
+    if (days > 7) return "review soon";
     return "";
   };
 
   const attentionCards = useMemo(() => {
     const scored = [...cards].sort((a, b) => {
-      const aAttempts = attemptsOf(a);
-      const bAttempts = attemptsOf(b);
+      const aPoints = masteryPoints(a);
+      const bPoints = masteryPoints(b);
 
-      if (aAttempts < 3 && bAttempts >= 3) return -1;
-      if (bAttempts < 3 && aAttempts >= 3) return 1;
+      if (aPoints !== bPoints) return aPoints - bPoints;
 
-      const aScore = effectiveSuccessScore(a);
-      const bScore = effectiveSuccessScore(b);
+      const aBoost = reRequestedOf(a);
+      const bBoost = reRequestedOf(b);
 
-      if (aScore !== bScore) return aScore - bScore;
+      if (aBoost !== bBoost) return bBoost - aBoost;
 
       const aDays = daysSinceLastPracticed(a) ?? -1;
       const bDays = daysSinceLastPracticed(b) ?? -1;
@@ -356,15 +380,66 @@ export default function Home() {
   }, [cards, attentionCards, databaseViewMode, search, tagFilter]);
 
   const totalSaved = cards.length;
+
   const activeVocabularyCount = cards.filter(
-    (card) => attemptsOf(card) >= 3 && effectiveSuccessScore(card) >= 0.68
+    (card) => masteryLabel(card) === "active" || masteryLabel(card) === "automatic"
   ).length;
+
   const needsReviewCount = cards.filter((card) => {
-    const attempts = attemptsOf(card);
-    const score = effectiveSuccessScore(card);
+    const label = masteryLabel(card);
     const days = daysSinceLastPracticed(card);
-    return attempts < 3 || score < 0.68 || (days !== null && days > 14);
+    return label === "new" || label === "familiar" || (days !== null && days > 14);
   }).length;
+
+  const bumpRequestedAgain = async (phraseKey: string) => {
+    const existingCard = cards.find(
+      (card) => normalizePhraseKey(card.phrase) === phraseKey
+    );
+
+    if (!existingCard) return false;
+
+    const nextRequestedCount = (existingCard.times_re_requested ?? 0) + 1;
+    const nowIso = new Date().toISOString();
+
+    const { error: updateError } = await supabase
+      .from("phrases")
+      .update({
+        times_re_requested: nextRequestedCount,
+        last_requested_again_at: nowIso,
+      })
+      .eq("id", existingCard.id);
+
+    if (updateError) {
+      console.error("Failed to bump requested-again stats:", updateError);
+      return true;
+    }
+
+    setCards((prev) =>
+      prev.map((card) =>
+        card.id === existingCard.id
+          ? {
+              ...card,
+              times_re_requested: nextRequestedCount,
+              last_requested_again_at: nowIso,
+            }
+          : card
+      )
+    );
+
+    if (analysis?.id === existingCard.id) {
+      setAnalysis((prev) =>
+        prev
+          ? {
+              ...prev,
+              times_re_requested: nextRequestedCount,
+              last_requested_again_at: nowIso,
+            }
+          : prev
+      );
+    }
+
+    return true;
+  };
 
   const analyzePhrase = async (p: string) => {
     const res = await fetch("/api/analyze-phrase", {
@@ -440,6 +515,7 @@ export default function Home() {
       );
 
       if (duplicateInCards) {
+        await bumpRequestedAgain(newKey);
         setLookupStatus(`Already in database: ${correctedPhrase}`);
         return;
       }
@@ -509,6 +585,10 @@ export default function Home() {
       );
 
       if (duplicateInCards || duplicateInPendingDrafts) {
+        if (duplicateInCards) {
+          await bumpRequestedAgain(newKey);
+        }
+
         alert(`This phrase already exists: ${correctedPhrase}`);
         return;
       }
@@ -602,6 +682,10 @@ export default function Home() {
     );
 
     if (duplicateInCards || duplicateInPendingDrafts) {
+      if (duplicateInCards) {
+        await bumpRequestedAgain(newKey);
+      }
+
       setLoading(false);
       alert(`This phrase already exists: ${correctedPhrase}`);
       return;
@@ -661,6 +745,13 @@ export default function Home() {
       times_almost: 0,
       times_wrong: 0,
       last_practiced_at: null,
+      times_spontaneous_correct: 0,
+      times_spontaneous_almost: 0,
+      times_spontaneous_wrong: 0,
+      last_spontaneous_used_at: null,
+      times_retry_correct: 0,
+      times_re_requested: 0,
+      last_requested_again_at: null,
     };
 
     const { error } = await supabase.from("phrases").insert(newCard);
@@ -907,7 +998,14 @@ export default function Home() {
       times_correct: 0,
       times_almost: 0,
       times_wrong: 0,
+      times_spontaneous_correct: 0,
+      times_spontaneous_almost: 0,
+      times_spontaneous_wrong: 0,
+      times_retry_correct: 0,
+      times_re_requested: 0,
       last_practiced_at: null,
+      last_spontaneous_used_at: null,
+      last_requested_again_at: null,
     };
 
     await supabase.from("phrases").update(updates).eq("id", id);
@@ -1158,6 +1256,13 @@ export default function Home() {
       times_almost: 0,
       times_wrong: 0,
       last_practiced_at: null,
+      times_spontaneous_correct: 0,
+      times_spontaneous_almost: 0,
+      times_spontaneous_wrong: 0,
+      last_spontaneous_used_at: null,
+      times_retry_correct: 0,
+      times_re_requested: 0,
+      last_requested_again_at: null,
     };
 
     const { error: insertError } = await supabase.from("phrases").insert(newCard);
@@ -2409,7 +2514,7 @@ export default function Home() {
 
                   <span
                     className="badge"
-                    style={{ background: masteryColor(card), color: "#111827" }}
+                    style={{ background: masteryColor(card), color: masteryTextColor(card) }}
                   >
                     {masteryText(card)}
                   </span>
@@ -2521,7 +2626,13 @@ export default function Home() {
                       <p><b>Correct:</b> {correctOf(card)}</p>
                       <p><b>Almost:</b> {almostOf(card)}</p>
                       <p><b>Wrong:</b> {wrongOf(card)}</p>
-                      <p><b>Success:</b> {Math.round(successScore(card) * 100)}%</p>
+                      <p><b>Stage:</b> {masteryLabel(card)}</p>
+                      <p><b>Points:</b> {masteryPoints(card).toFixed(1)}</p>
+                      <p><b>Spontaneous correct:</b> {spontaneousCorrectOf(card)}</p>
+                      <p><b>Spontaneous almost:</b> {spontaneousAlmostOf(card)}</p>
+                      <p><b>Spontaneous wrong:</b> {spontaneousWrongOf(card)}</p>
+                      <p><b>Retry correct:</b> {retryCorrectOf(card)}</p>
+                      <p><b>Requested again:</b> {reRequestedOf(card)}</p>
                       <p>
                         <b>Last attempted:</b>{" "}
                         {card.last_practiced_at
