@@ -180,28 +180,39 @@ export default function PracticePage() {
   };
 
   const effectiveMasteryScore = (card: PhraseCard) => {
-    if ((card.times_attempted ?? 0) === 0) return 0;
+  if ((card.times_attempted ?? 0) === 0) return 0;
 
-    const base =
-      ((card.times_correct ?? 0) + 0.8 * (card.times_almost ?? 0)) /
-      (card.times_attempted ?? 0);
+  const base =
+    ((card.times_correct ?? 0) + 0.8 * (card.times_almost ?? 0)) /
+    (card.times_attempted ?? 0);
 
-    const days = daysSinceLastPracticed(card);
+  const days = daysSinceLastPracticed(card);
 
-    let confidenceBonus = 0;
-    if ((card.times_attempted ?? 0) >= 6) confidenceBonus = 0.12;
-    else if ((card.times_attempted ?? 0) >= 3) confidenceBonus = 0.08;
-    else confidenceBonus = 0.04;
+  let confidenceBonus = 0;
+  if ((card.times_attempted ?? 0) >= 6) confidenceBonus = 0.12;
+  else if ((card.times_attempted ?? 0) >= 3) confidenceBonus = 0.08;
+  else confidenceBonus = 0.04;
 
-    let stalePenalty = 0;
-    if (days !== null) {
-      if (days > 30) stalePenalty = 0.18;
-      else if (days > 14) stalePenalty = 0.1;
-      else if (days > 7) stalePenalty = 0.05;
-    }
+  let stalePenalty = 0;
+  if (days !== null) {
+    if (days > 30) stalePenalty = 0.18;
+    else if (days > 14) stalePenalty = 0.1;
+    else if (days > 7) stalePenalty = 0.05;
+  }
 
-    return Math.max(0, Math.min(1, base + confidenceBonus - stalePenalty));
-  };
+  const spontaneousCorrect = card.times_spontaneous_correct ?? 0;
+  const spontaneousAlmost = card.times_spontaneous_almost ?? 0;
+
+  const spontaneousBonus = Math.min(
+    0.2,
+    spontaneousCorrect * 0.05 + spontaneousAlmost * 0.025
+  );
+
+  return Math.max(
+    0,
+    Math.min(1, base + confidenceBonus - stalePenalty + spontaneousBonus)
+  );
+};
 
   const requestedAgainBoost = (card: PhraseCard) => {
     const count = card.times_re_requested ?? 0;
@@ -516,44 +527,44 @@ export default function PracticePage() {
       setTranslatingMessageIndex(null);
     }
   };
+const applyCardUpdates = async (
+  updater: (prevCards: PhraseCard[]) => PhraseCard[]
+) => {
+  const updatedCards = updater(cards);
 
-  const applyCardUpdates = async (
-    updater: (prevCards: PhraseCard[]) => PhraseCard[]
-  ) => {
-    setCards((prevCards) => {
-      const updatedCards = updater(prevCards);
+  setCards(updatedCards);
 
-      void Promise.all(
-        updatedCards.map((card) =>
-          supabase
-            .from("phrases")
-            .update({
-              times_attempted: card.times_attempted ?? 0,
-              times_correct: card.times_correct ?? 0,
-              times_almost: card.times_almost ?? 0,
-              times_wrong: card.times_wrong ?? 0,
-              last_practiced_at: card.last_practiced_at,
-              times_spontaneous_correct: card.times_spontaneous_correct ?? 0,
-              times_spontaneous_almost: card.times_spontaneous_almost ?? 0,
-              times_spontaneous_wrong: card.times_spontaneous_wrong ?? 0,
-              last_spontaneous_used_at: card.last_spontaneous_used_at,
-              times_retry_correct: card.times_retry_correct ?? 0,
-              times_re_requested: card.times_re_requested ?? 0,
-              last_requested_again_at: card.last_requested_again_at,
-            })
-            .eq("id", card.id)
-        )
-      ).then((results) => {
-        const failed = results.find((result) => result.error);
-        const failedError = failed?.error;
+  setSelectedCards((prevSelected) => {
+    const nextById = new Map(
+      updatedCards.map((card) => [card.id, card] as const)
+    );
 
-        if (failedError) {
-          console.error("Failed to update phrase stats:", failedError);
-        }
-      });
+    return prevSelected.map((card) => nextById.get(card.id) ?? card);
+  });
 
-      return updatedCards;
-    });
+  await Promise.all(
+    updatedCards.map(async (card) => {
+      const { error } = await supabase
+        .from("phrases")
+        .update({
+          times_attempted: card.times_attempted ?? 0,
+          times_correct: card.times_correct ?? 0,
+          times_almost: card.times_almost ?? 0,
+          times_wrong: card.times_wrong ?? 0,
+          last_practiced_at: card.last_practiced_at,
+          times_retry_correct: card.times_retry_correct ?? 0,
+          times_re_requested: card.times_re_requested ?? 0,
+          last_requested_again_at: card.last_requested_again_at,
+        })
+        .eq("id", card.id);
+
+      if (error) {
+        console.error("❌ Supabase update failed:", card.phrase, error);
+      } else {
+        console.log("✅ Updated:", card.phrase);
+      }
+    })
+  );
 
     setSelectedCards((prevSelected) => {
       const nextById = new Map(
@@ -898,33 +909,60 @@ export default function PracticePage() {
         );
         setRetryState(null);
       } else {
-        applyCardUpdates((prevCards) =>
-          prevCards.map((card) => {
-            const item = rawFeedback.find((f) => f.phrase === card.phrase);
-            if (!item || item.status === "unused") return card;
+  applyCardUpdates((prevCards) =>
+    prevCards.map((card) => {
+      const item = rawFeedback.find((f) => f.phrase === card.phrase);
+      if (!item || item.status === "unused") return card;
 
-            const updated = {
-              ...card,
-              times_attempted: (card.times_attempted ?? 0) + 1,
-              last_practiced_at: nowIso,
-            };
+      const isTarget = selectedCards.some((c) => c.phrase === card.phrase);
+      const isSpontaneous = !isTarget;
 
-            if (item.status === "correct") {
-              updated.times_correct = (card.times_correct ?? 0) + 1;
-            }
+      const updated: PhraseCard = {
+        ...card,
+        last_practiced_at: nowIso,
+      };
 
-            if (item.status === "almost") {
-              updated.times_almost = (card.times_almost ?? 0) + 1;
-            }
+      // -------- NORMAL TARGET PRACTICE --------
+      if (!isSpontaneous) {
+        updated.times_attempted = (card.times_attempted ?? 0) + 1;
 
-            if (item.status === "wrong") {
-              updated.times_wrong = (card.times_wrong ?? 0) + 1;
-            }
+        if (item.status === "correct") {
+          updated.times_correct = (card.times_correct ?? 0) + 1;
+        }
 
-            return updated;
-          })
-        );
+        if (item.status === "almost") {
+          updated.times_almost = (card.times_almost ?? 0) + 1;
+        }
+
+        if (item.status === "wrong") {
+          updated.times_wrong = (card.times_wrong ?? 0) + 1;
+        }
       }
+
+      // -------- SPONTANEOUS USAGE --------
+      if (isSpontaneous) {
+        updated.last_spontaneous_used_at = nowIso;
+
+        if (item.status === "correct") {
+          updated.times_spontaneous_correct =
+            (card.times_spontaneous_correct ?? 0) + 1;
+        }
+
+        if (item.status === "almost") {
+          updated.times_spontaneous_almost =
+            (card.times_spontaneous_almost ?? 0) + 1;
+        }
+
+        if (item.status === "wrong") {
+          updated.times_spontaneous_wrong =
+            (card.times_spontaneous_wrong ?? 0) + 1;
+        }
+      }
+
+      return updated;
+    })
+  );
+}
 
       setTimeout(() => {
         inputRef.current?.focus();

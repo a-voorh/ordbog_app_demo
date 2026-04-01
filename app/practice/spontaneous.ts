@@ -46,6 +46,7 @@ const LARGE_DB_FIRST_TURN_CAP = 120;
 const LARGE_DB_LATER_TURN_CAP = 60;
 const SPONTANEOUS_MASTERY_BONUS_MIN_ATTEMPTS = 1;
 const SPONTANEOUS_MASTERY_BONUS_MAX_ATTEMPTS = 3;
+const MIN_CONFIDENCE = 0.75;
 
 const normalizeText = (value: string) =>
   value
@@ -92,6 +93,7 @@ const getFilteredNonTargetRows = (
 
   return allRows.filter((row) => {
     if (currentTargets.has(normalizeText(row.phrase))) {
+      console.log("[spontaneous] filtered out target:", row.phrase);
       return false;
     }
 
@@ -212,10 +214,23 @@ export async function evaluateAndApplySpontaneousUsage({
     : getLaterTurnPool(filteredRows, trimmedMessage);
 
   if (candidatePool.length === 0) {
+    console.log("[spontaneous] candidate pool is empty");
     return [];
   }
 
   const candidatePhraseList = candidatePool.map((row) => row.phrase);
+  const candidateMap = new Map(
+    candidatePool.map((row) => [normalizeText(row.phrase), row])
+  );
+  const currentTargets = new Set(
+    currentTargetPhrases.map((phrase) => normalizeText(phrase))
+  );
+
+  console.log("[spontaneous] user message:", trimmedMessage);
+  console.log("[spontaneous] total phrases:", allRows.length);
+  console.log("[spontaneous] filtered pool size:", filteredRows.length);
+  console.log("[spontaneous] candidate pool size:", candidatePool.length);
+  console.log("[spontaneous] candidate phrases:", candidatePhraseList);
 
   const evaluationResponse = await openai.responses.create({
     model: "gpt-4.1-mini",
@@ -238,6 +253,8 @@ Rules:
 - copied or directly repeated material from the previous assistant message is not spontaneous
 - only include phrases that were actually used or clearly attempted
 - do not include phrases with status "unused"
+- do not return target phrases
+- only return phrases from the candidate non-target saved phrases list
 
 Return ONLY valid JSON with exactly this structure:
 {
@@ -305,17 +322,65 @@ ${trimmedMessage}`,
   );
   if (!parsed) return [];
 
-  const candidateMap = new Map(
-    candidatePool.map((row) => [normalizeText(row.phrase), row])
-  );
+  console.log("[spontaneous] raw model matches:", parsed.spontaneousMatches);
+
+  const validMatches = parsed.spontaneousMatches.filter((match) => {
+    const normalizedPhrase = normalizeText(match.phrase);
+
+    if (currentTargets.has(normalizedPhrase)) {
+      console.log(
+        "[spontaneous] skipped target returned by model:",
+        match.phrase
+      );
+      return false;
+    }
+
+    if (!candidateMap.has(normalizedPhrase)) {
+      console.log(
+        "[spontaneous] skipped phrase not in candidate pool:",
+        match.phrase
+      );
+      return false;
+    }
+
+    if (!match.isSpontaneous) {
+      console.log(
+        "[spontaneous] skipped non-spontaneous match:",
+        match.phrase
+      );
+      return false;
+    }
+
+    if (match.confidence < MIN_CONFIDENCE) {
+      console.log(
+        "[spontaneous] skipped low-confidence match:",
+        match.phrase,
+        match.confidence
+      );
+      return false;
+    }
+
+    if (match.status === "unused") {
+      console.log(
+        "[spontaneous] skipped unused match:",
+        match.phrase
+      );
+      return false;
+    }
+
+    return true;
+  });
+
+  console.log("[spontaneous] valid non-target matches:", validMatches);
+
+  if (validMatches.length === 0) {
+    console.log("[spontaneous] no valid non-target spontaneous matches to update");
+    return parsed.spontaneousMatches;
+  }
 
   const nowIso = new Date().toISOString();
 
-  for (const match of parsed.spontaneousMatches) {
-    if (!match.isSpontaneous) continue;
-    if (match.confidence < 0.75) continue;
-    if (match.status === "unused") continue;
-
+  for (const match of validMatches) {
     const row = candidateMap.get(normalizeText(match.phrase));
     if (!row) continue;
 
@@ -372,6 +437,8 @@ ${trimmedMessage}`,
       updatePayload.last_practiced_at = nextLastPracticedAt;
     }
 
+    console.log("[spontaneous] updating phrase:", row.phrase, updatePayload);
+
     const { error: updateError } = await supabase
       .from("phrases")
       .update(updatePayload)
@@ -382,7 +449,10 @@ ${trimmedMessage}`,
         "Failed to update spontaneous phrase stats:",
         updateError
       );
+      continue;
     }
+
+    console.log("[spontaneous] updated successfully:", row.phrase);
   }
 
   return parsed.spontaneousMatches;
