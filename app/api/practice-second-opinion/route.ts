@@ -174,6 +174,11 @@ Very important:
 - do not let second opinion function as a way to bypass retry scoring
 - if the current feedback is already reasonable, preserve it
 
+Only mention grammar mistakes if they are real and certain.
+If there are no mistakes, explicitly say:
+"No other grammar mistakes."
+Do NOT invent corrections.
+
 Return ONLY valid JSON with exactly this structure:
 {
   "phraseFeedback": [

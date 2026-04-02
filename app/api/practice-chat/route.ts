@@ -667,6 +667,10 @@ Rules:
 - DO NOT confuse a nearby base form with the actual learner form
 
 If your suggested correction equals detectedText, leave suggestion empty.
+Only mention grammar mistakes if they are real and certain.
+If there are no mistakes, explicitly say:
+"No other grammar mistakes."
+Do NOT invent corrections.
 
 --------------------------------
 11. STRICTNESS
