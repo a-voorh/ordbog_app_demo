@@ -196,11 +196,11 @@ export default function Home() {
 
   useEffect(() => {
     const load = async () => {
-      const { data: phraseData } = await supabase.from("phrases").select("*");
+      const { data: phraseData } = await supabase.from("phrases_demo").select("*");
       setCards(sortByPhraseDa((phraseData || []) as PhraseCard[]));
 
       const { data: draftData } = await supabase
-        .from("phrase_drafts")
+        .from("phrase_drafts_demo")
         .select("*")
         .order("created_at", { ascending: false });
 
@@ -402,7 +402,7 @@ export default function Home() {
     const nowIso = new Date().toISOString();
 
     const { error: updateError } = await supabase
-      .from("phrases")
+      .from("phrases_demo")
       .update({
         times_re_requested: nextRequestedCount,
         last_requested_again_at: nowIso,
@@ -542,7 +542,7 @@ export default function Home() {
         source: "lookup",
       };
 
-      const { error } = await supabase.from("phrase_drafts").insert(newDraft);
+      const { error } = await supabase.from("phrase_drafts_demo").insert(newDraft);
 
       if (error) {
         console.error("Failed to save lookup draft:", error);
@@ -610,7 +610,7 @@ export default function Home() {
         source: "phrase_input",
       };
 
-      const { error } = await supabase.from("phrase_drafts").insert(newDraft);
+      const { error } = await supabase.from("phrase_drafts_demo").insert(newDraft);
 
       if (error) {
         alert("Could not save draft.");
@@ -754,7 +754,7 @@ export default function Home() {
       last_requested_again_at: null,
     };
 
-    const { error } = await supabase.from("phrases").insert(newCard);
+    const { error } = await supabase.from("phrases_demo").insert(newCard);
 
     if (error) {
       alert("Could not save the phrase. It may already exist.");
@@ -888,7 +888,7 @@ export default function Home() {
     const normalized = Array.from(new Set(tags.map(normalizeTag).filter(Boolean)));
 
     const { error } = await supabase
-      .from("phrases")
+      .from("phrases_demo")
       .update({ tags: normalized })
       .eq("id", cardId);
 
@@ -912,7 +912,7 @@ export default function Home() {
     const normalized = Array.from(new Set(tags.map(normalizeTag).filter(Boolean)));
 
     const { error } = await supabase
-      .from("phrase_drafts")
+      .from("phrase_drafts_demo")
       .update({ tags: normalized })
       .eq("id", draftId);
 
@@ -975,7 +975,7 @@ export default function Home() {
   };
 
   const deleteCard = async (id: string) => {
-    await supabase.from("phrases").delete().eq("id", id);
+    await supabase.from("phrases_demo").delete().eq("id", id);
 
     setCards((prev) => prev.filter((c) => c.id !== id));
     setSelectedForPractice((prev) => {
@@ -1008,7 +1008,7 @@ export default function Home() {
       last_requested_again_at: null,
     };
 
-    await supabase.from("phrases").update(updates).eq("id", id);
+    await supabase.from("phrases_demo").update(updates).eq("id", id);
 
     setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)));
 
@@ -1066,7 +1066,7 @@ export default function Home() {
       extra_info: editDraft.extra_info,
     };
 
-    const { error } = await supabase.from("phrases").update(updates).eq("id", id);
+    const { error } = await supabase.from("phrases_demo").update(updates).eq("id", id);
 
     if (error) {
       alert("Could not save changes.");
@@ -1120,7 +1120,7 @@ export default function Home() {
     };
 
     const { error } = await supabase
-      .from("phrase_drafts")
+      .from("phrase_drafts_demo")
       .update(updates)
       .eq("id", draftId);
 
@@ -1164,7 +1164,7 @@ export default function Home() {
       extra_info: parsed.extra_info,
     };
 
-    const { error } = await supabase.from("phrases").update(updates).eq("id", card.id);
+    const { error } = await supabase.from("phrases_demo").update(updates).eq("id", card.id);
 
     if (error) {
       alert("Could not refresh this phrase.");
@@ -1215,7 +1215,7 @@ export default function Home() {
     };
 
     const { error } = await supabase
-      .from("phrase_drafts")
+      .from("phrase_drafts_demo")
       .update(updates)
       .eq("id", draft.id);
 
@@ -1265,7 +1265,7 @@ export default function Home() {
       last_requested_again_at: null,
     };
 
-    const { error: insertError } = await supabase.from("phrases").insert(newCard);
+    const { error: insertError } = await supabase.from("phrases_demo").insert(newCard);
 
     if (insertError) {
       alert("Could not save draft to database.");
@@ -1273,7 +1273,7 @@ export default function Home() {
     }
 
     const { error: deleteError } = await supabase
-      .from("phrase_drafts")
+      .from("phrase_drafts_demo")
       .delete()
       .eq("id", draft.id);
 
@@ -1296,7 +1296,7 @@ export default function Home() {
   };
 
   const discardPendingDraft = async (draftId: string) => {
-    const { error } = await supabase.from("phrase_drafts").delete().eq("id", draftId);
+    const { error } = await supabase.from("phrase_drafts_demo").delete().eq("id", draftId);
 
     if (error) {
       alert("Could not discard draft.");
@@ -1346,7 +1346,7 @@ export default function Home() {
 
     for (const card of changedCards) {
       const { error } = await supabase
-        .from("phrases")
+        .from("phrases_demo")
         .update({ tags: card.tags })
         .eq("id", card.id);
 
@@ -1358,7 +1358,7 @@ export default function Home() {
 
     for (const draft of changedDrafts) {
       const { error } = await supabase
-        .from("phrase_drafts")
+        .from("phrase_drafts_demo")
         .update({ tags: draft.tags })
         .eq("id", draft.id);
 
@@ -1464,623 +1464,641 @@ export default function Home() {
   const visibleFilterTags = showAllFilterTags ? allTags : allTags.slice(0, 4);
   const visibleDraftTags = showAllDraftTags ? allTags : allTags.slice(0, 4);
 
-  return (
-    <main className="app-page">
-      <div
-        style={{
-          marginBottom: 28,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          gap: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        <div style={{ flex: "1 1 320px" }}>
-          <h1 className="app-title">📚 Mit ordforråd: ord for ord</h1>
-          <p className="app-subtitle">Små danske vendinger, forklaringer og øvelse</p>
-        </div>
-
-        <div
-          style={{
-            flex: "0 0 220px",
-            minWidth: 220,
-            width: "100%",
-            maxWidth: 280,
-            display: "grid",
-            gap: 10,
-          }}
-        >
-          <Link href="/practice" className="link-reset">
-            <span
-              className="nav-button button-full"
-              style={{
-                display: "block",
-                textAlign: "center",
-                padding: "14px 16px",
-                fontSize: 16,
-              }}
-            >
-              Practice Mode →
-            </span>
-          </Link>
-
-          {selectedForPractice.length > 0 && (
-            <button
-              onClick={clearPracticeSelection}
-              className="button-secondary button-full"
-            >
-              Clear selected phrases ({selectedForPractice.length})
-            </button>
-          )}
-        </div>
+ return (
+  <main className="app-page">
+    <div
+      style={{
+        marginBottom: 28,
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-start",
+        gap: 16,
+        flexWrap: "wrap",
+      }}
+    >
+      <div style={{ flex: "1 1 320px" }}>
+        <h1 className="app-title">📚 Mit ordforråd: ord for ord</h1>
+        <p className="app-subtitle">Små danske vendinger, forklaringer og øvelse</p>
       </div>
 
       <div
-        className="card"
         style={{
-          marginBottom: 24,
-          padding: 20,
-          borderWidth: 2,
+          flex: "0 0 220px",
+          minWidth: 220,
+          width: "100%",
+          maxWidth: 280,
+          display: "grid",
+          gap: 10,
         }}
       >
-        <div style={{ marginBottom: 14 }}>
-          <h2
-            className="section-title"
-            style={{ marginBottom: 6, fontSize: 24 }}
+        <Link href="/practice" className="link-reset">
+          <span
+            className="nav-button button-full"
+            style={{
+              display: "block",
+              textAlign: "center",
+              padding: "14px 16px",
+              fontSize: 16,
+            }}
           >
-            Add a new Danish phrase
-          </h2>
-          <p className="meta-text" style={{ fontSize: 14 }}>
-            Start here. Add the phrase you want to learn, then review the generated draft card.
-          </p>
-        </div>
+            Practice Mode →
+          </span>
+        </Link>
 
+        {selectedForPractice.length > 0 && (
+          <button
+            onClick={clearPracticeSelection}
+            className="button-secondary button-full"
+          >
+            Clear selected phrases ({selectedForPractice.length})
+          </button>
+        )}
+      </div>
+    </div>
+
+    <div
+      className="card"
+      style={{
+        marginBottom: 24,
+        padding: 20,
+        borderWidth: 2,
+      }}
+    >
+      <div style={{ marginBottom: 14 }}>
+        <h2
+          className="section-title"
+          style={{ marginBottom: 6, fontSize: 24 }}
+        >
+          Add a new Danish phrase
+        </h2>
+        <p className="meta-text" style={{ fontSize: 14 }}>
+          Start here. Add the phrase you want to learn, then review the generated draft card.
+        </p>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+        }}
+      >
+        <input
+          value={phrase}
+          onChange={(e) => setPhrase(e.target.value)}
+          onKeyDown={handleEnterAdd}
+          placeholder="Write a Danish phrase..."
+          className="text-input"
+          style={{
+            width: "100%",
+            fontSize: 18,
+            padding: "14px 16px",
+          }}
+        />
+
+        <div
+          className="inline-action-row"
+          style={{
+            display: "flex",
+            gap: 12,
+            alignItems: "stretch",
+            flexWrap: "wrap",
+          }}
+        >
+          <button
+            onClick={() => void createDraftFromPhrase()}
+            className="button-primary"
+            style={{
+              padding: "14px 16px",
+              fontSize: 16,
+              minHeight: 52,
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            disabled={loading || savingPhraseToPendingDraft}
+          >
+            {loading ? "Analyzing..." : "Analyze"}
+          </button>
+
+          <button
+            onClick={() => void createPendingDraftFromPhrase()}
+            className="button-secondary"
+            style={{
+              padding: "14px 16px",
+              fontSize: 16,
+              minHeight: 52,
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            disabled={loading || savingPhraseToPendingDraft}
+          >
+            {savingPhraseToPendingDraft ? "Saving..." : "Create draft"}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      style={{
+        display: "grid",
+        gap: 16,
+        marginBottom: 24,
+      }}
+    >
+      <div className="card" style={{ margin: 0 }}>
         <div
           style={{
             display: "flex",
-            flexDirection: "column",
+            justifyContent: "space-between",
+            alignItems: "center",
             gap: 12,
+            flexWrap: "wrap",
           }}
         >
-          <input
-            value={phrase}
-            onChange={(e) => setPhrase(e.target.value)}
-            onKeyDown={handleEnterAdd}
-            placeholder="Write a Danish phrase..."
-            className="text-input"
-            style={{
-              width: "100%",
-              fontSize: 18,
-              padding: "14px 16px",
-            }}
-          />
-
-          <div className="inline-action-row">
-            <button
-              onClick={() => void createDraftFromPhrase()}
-              className="button-primary"
-              style={{
-                padding: "14px 16px",
-                fontSize: 16,
-              }}
-              disabled={loading || savingPhraseToPendingDraft}
-            >
-              {loading ? "Analyzing..." : "Analyze"}
-            </button>
-
-            <button
-              onClick={() => void createPendingDraftFromPhrase()}
-              className="button-secondary"
-              style={{
-                padding: "14px 16px",
-                fontSize: 16,
-              }}
-              disabled={loading || savingPhraseToPendingDraft}
-            >
-              {savingPhraseToPendingDraft ? "Saving..." : "Create draft"}
-            </button>
+          <div>
+            <h3 className="subsection-title" style={{ marginBottom: 4 }}>
+              Support tools
+            </h3>
+            <div className="meta-text">
+              Useful, but secondary to adding a Danish phrase directly.
+            </div>
           </div>
-        </div>
-      </div>
 
-      <div
-        style={{
-          display: "grid",
-          gap: 16,
-          marginBottom: 24,
-        }}
-      >
-        <div className="card" style={{ margin: 0 }}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: 12,
-              flexWrap: "wrap",
-            }}
+          <button
+            onClick={() => setNewPhraseToolsOpen((prev) => !prev)}
+            className="button-secondary"
           >
-            <div>
-              <h3 className="subsection-title" style={{ marginBottom: 4 }}>
-                Support tools
-              </h3>
-              <div className="meta-text">
-                Useful, but secondary to adding a Danish phrase directly.
+            {newPhraseToolsOpen ? "Hide tools" : "Show tools"}
+          </button>
+        </div>
+
+        {newPhraseToolsOpen && (
+          <div style={{ marginTop: 16, display: "grid", gap: 16 }}>
+            <div className="mini-box">
+              <div style={{ marginBottom: 10 }} className="meta-text">
+                Tags for the new phrase
               </div>
+
+              {allTags.length > 0 && (
+                <div className="tag-row" style={{ marginBottom: 12 }}>
+                  {visibleNewPhraseTags.map((tag) => {
+                    const selected = selectedTags.includes(tag);
+
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => toggleSelectedTag(tag)}
+                        className={selected ? "tag-pill-selected" : "tag-pill"}
+                        style={tagPillStyle(tag)}
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+
+                  {allTags.length > 4 && !showAllNewPhraseTags && (
+                    <button className="tag-pill" onClick={() => setShowAllNewPhraseTags(true)}>
+                      +{allTags.length - 4} more
+                    </button>
+                  )}
+
+                  {allTags.length > 4 && showAllNewPhraseTags && (
+                    <button className="tag-pill" onClick={() => setShowAllNewPhraseTags(false)}>
+                      show less
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="controls-row" style={{ marginBottom: 12 }}>
+                <input
+                  value={newTagInput}
+                  onChange={(e) => setNewTagInput(e.target.value)}
+                  placeholder="New tag..."
+                  className="text-input"
+                  style={{ width: "100%", maxWidth: 260 }}
+                />
+
+                <button onClick={addNewTag} className="button-secondary">
+                  Add tag
+                </button>
+              </div>
+
+              {selectedTags.length > 0 && (
+                <div>
+                  <div style={{ marginBottom: 8 }} className="meta-text">
+                    Selected tags
+                  </div>
+
+                  <div className="tag-row">
+                    {selectedTags.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => removeSelectedTag(tag)}
+                        className="tag-pill-selected"
+                        style={tagPillStyle(tag)}
+                      >
+                        {tag} ✕
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <button
-              onClick={() => setNewPhraseToolsOpen((prev) => !prev)}
-              className="button-secondary"
-            >
-              {newPhraseToolsOpen ? "Hide tools" : "Show tools"}
-            </button>
-          </div>
-
-          {newPhraseToolsOpen && (
-            <div style={{ marginTop: 16, display: "grid", gap: 16 }}>
-              <div className="mini-box">
-                <div style={{ marginBottom: 10 }} className="meta-text">
-                  Tags for the new phrase
+            <div className="mini-box">
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div>
+                  <h3 className="subsection-title" style={{ marginBottom: 4 }}>
+                    Quick lookup
+                  </h3>
+                  <div className="meta-text">
+                    Look up an English word or phrase and save it to drafts.
+                  </div>
                 </div>
 
-                {allTags.length > 0 && (
-                  <div className="tag-row" style={{ marginBottom: 12 }}>
-                    {visibleNewPhraseTags.map((tag) => {
-                      const selected = selectedTags.includes(tag);
+                <button onClick={toggleLookupOpen} className="button-secondary">
+                  {lookupOpen ? "Hide lookup" : "Open lookup"}
+                </button>
+              </div>
 
-                      return (
+              {lookupOpen && (
+                <div style={{ marginTop: 14 }}>
+                  <div className="controls-row" style={{ alignItems: "flex-start" }}>
+                    <input
+                      ref={lookupInputRef}
+                      value={lookupEnglish}
+                      onChange={(e) => setLookupEnglish(e.target.value)}
+                      onKeyDown={handleLookupKeyDown}
+                      placeholder="Type English word or phrase..."
+                      className="text-input"
+                      style={{ width: "100%", maxWidth: 320 }}
+                    />
+
+                    <button
+                      onClick={() => void lookupWord()}
+                      disabled={lookupLoading || !lookupEnglish.trim()}
+                      className={`button-primary ${
+                        lookupLoading || !lookupEnglish.trim() ? "button-disabled" : ""
+                      }`}
+                    >
+                      {lookupLoading ? "Looking up..." : "Look up"}
+                    </button>
+                  </div>
+
+                  {lookupStatus && (
+                    <div className="meta-text" style={{ marginTop: 10 }}>
+                      {lookupStatus}
+                    </div>
+                  )}
+
+                  {lookupResult && (
+                    <div style={{ marginTop: 14 }}>
+                      <p><b>Danish:</b> {lookupResult.corrected_phrase}</p>
+                      <p><b>Explanation:</b> {lookupResult.short_explanation_da}</p>
+                      <p><b>Example:</b> {lookupResult.example_da}</p>
+                      <p><b>English:</b> {lookupResult.translation_en}</p>
+                      <p><b>Example EN:</b> {lookupResult.example_en}</p>
+                      <p><b>Extra info:</b> {lookupResult.extra_info || "—"}</p>
+
+                      <div style={{ marginTop: 10 }}>
                         <button
-                          key={tag}
-                          type="button"
-                          onClick={() => toggleSelectedTag(tag)}
-                          className={selected ? "tag-pill-selected" : "tag-pill"}
-                          style={tagPillStyle(tag)}
+                          onClick={() => void saveLookupResultAsPendingDraft()}
+                          disabled={savingLookupDraft}
+                          className={`button-secondary ${
+                            savingLookupDraft ? "button-disabled" : ""
+                          }`}
                         >
-                          {tag}
+                          {savingLookupDraft ? "Saving..." : "Create draft"}
                         </button>
-                      );
-                    })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
 
-                    {allTags.length > 4 && !showAllNewPhraseTags && (
-                      <button className="tag-pill" onClick={() => setShowAllNewPhraseTags(true)}>
-                        +{allTags.length - 4} more
+    {draftCard && (
+      <div className="card" style={{ marginBottom: 24 }}>
+        <h2 className="section-title" style={{ marginBottom: 12 }}>
+          Draft card
+        </h2>
+
+        {!isEditingDraft ? (
+          <>
+            <p><b>Phrase:</b> {draftCard.phrase}</p>
+            <p><b>Translation:</b> {draftCard.translation_en}</p>
+            <p><b>Forklaring:</b> {draftCard.short_explanation}</p>
+            <p><b>Eksempel:</b> {draftCard.example_da}</p>
+            <p><b>Example:</b> {draftCard.example_en}</p>
+            <p><b>Extra info:</b> {draftCard.extra_info || "—"}</p>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
+                marginTop: 12,
+                marginBottom: 12,
+              }}
+            >
+              <input
+                value={draftTagInput}
+                onChange={(e) => setDraftTagInput(e.target.value)}
+                onKeyDown={handleDraftTagKeyDown}
+                placeholder="New tag..."
+                className="text-input"
+                style={{ width: "100%", maxWidth: 180 }}
+              />
+
+              {visibleDraftTags.map((tag) => {
+                const selected = draftCard.tags.includes(tag);
+
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => toggleDraftTag(tag)}
+                    className={selected ? "tag-pill-selected" : "tag-pill"}
+                    style={tagPillStyle(tag)}
+                  >
+                    {selected ? `${tag} ✕` : tag}
+                  </button>
+                );
+              })}
+
+              {allTags.length > 4 && !showAllDraftTags && (
+                <button className="tag-pill" onClick={() => setShowAllDraftTags(true)}>
+                  +{allTags.length - 4} more
+                </button>
+              )}
+
+              {allTags.length > 4 && showAllDraftTags && (
+                <button className="tag-pill" onClick={() => setShowAllDraftTags(false)}>
+                  show less
+                </button>
+              )}
+            </div>
+
+            <div className="controls-row" style={{ marginTop: 10 }}>
+              <button onClick={startEditingDraft} className="button-secondary">
+                Edit
+              </button>
+
+              <button onClick={() => void refreshDraftAnalysis()} className="button-secondary">
+                Refresh AI
+              </button>
+
+              <button onClick={() => void saveDraftToDatabase()} className="button-primary">
+                Save to database
+              </button>
+
+              <button onClick={discardDraft} className="button-danger">
+                Discard draft
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={{ marginTop: 16 }}>
+            <input
+              value={draftEdit?.phrase ?? ""}
+              onChange={(e) =>
+                setDraftEdit((prev) => (prev ? { ...prev, phrase: e.target.value } : prev))
+              }
+              className="text-input"
+              style={{ width: "100%", marginBottom: 8 }}
+            />
+
+            <input
+              value={draftEdit?.translation_en ?? ""}
+              onChange={(e) =>
+                setDraftEdit((prev) =>
+                  prev ? { ...prev, translation_en: e.target.value } : prev
+                )
+              }
+              className="text-input"
+              style={{ width: "100%", marginBottom: 8 }}
+            />
+
+            <textarea
+              value={draftEdit?.short_explanation ?? ""}
+              onChange={(e) =>
+                setDraftEdit((prev) =>
+                  prev ? { ...prev, short_explanation: e.target.value } : prev
+                )
+              }
+              className="textarea-input"
+              style={{ marginBottom: 8 }}
+            />
+
+            <textarea
+              value={draftEdit?.example_da ?? ""}
+              onChange={(e) =>
+                setDraftEdit((prev) =>
+                  prev ? { ...prev, example_da: e.target.value } : prev
+                )
+              }
+              className="textarea-input"
+              style={{ marginBottom: 8 }}
+            />
+
+            <textarea
+              value={draftEdit?.example_en ?? ""}
+              onChange={(e) =>
+                setDraftEdit((prev) =>
+                  prev ? { ...prev, example_en: e.target.value } : prev
+                )
+              }
+              className="textarea-input"
+              style={{ marginBottom: 8 }}
+            />
+
+            <input
+              value={draftEdit?.extra_info ?? ""}
+              onChange={(e) =>
+                setDraftEdit((prev) =>
+                  prev ? { ...prev, extra_info: e.target.value } : prev
+                )
+              }
+              className="text-input"
+              placeholder="Extra info..."
+              style={{ width: "100%", marginBottom: 8 }}
+            />
+
+            <div className="controls-row" style={{ marginTop: 10 }}>
+              <button onClick={saveDraftEdit} className="button-primary">
+                Save
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsEditingDraft(false);
+                  setDraftEdit(null);
+                }}
+                className="button-secondary"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+        gap: 12,
+        marginBottom: 24,
+      }}
+    >
+      <div className="card" style={{ margin: 0 }}>
+        <div className="meta-text">Total saved</div>
+        <div style={{ fontSize: 28, fontWeight: 700 }}>{totalSaved}</div>
+      </div>
+
+      <div className="card" style={{ margin: 0 }}>
+        <div className="meta-text">Active vocabulary</div>
+        <div style={{ fontSize: 28, fontWeight: 700 }}>{activeVocabularyCount}</div>
+      </div>
+
+      <div className="card" style={{ margin: 0 }}>
+        <div className="meta-text">Needs attention</div>
+        <div style={{ fontSize: 28, fontWeight: 700 }}>{needsReviewCount}</div>
+      </div>
+    </div>
+
+    {pendingDrafts.length > 0 && (
+      <>
+        <h2 className="section-title">Pending drafts</h2>
+
+        {pendingDrafts.map((draft) => {
+          const expanded = expandedPendingDraftId === draft.id;
+          const showAllTags = !!showAllTagsByPendingDraft[draft.id];
+          const visibleTags = showAllTags ? draft.tags : draft.tags.slice(0, 4);
+
+          const showAllInlinePicker = !!showAllInlinePickerByPendingDraft[draft.id];
+          const visibleInlinePickerTags = showAllInlinePicker ? allTags : allTags.slice(0, 4);
+
+          return (
+            <div key={draft.id} className="card">
+              <div
+                className="controls-row"
+                style={{ justifyContent: "space-between", alignItems: "flex-start" }}
+              >
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flex: 1 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      flexWrap: "wrap",
+                      cursor: "pointer",
+                      flex: 1,
+                    }}
+                    onClick={() =>
+                      setExpandedPendingDraftId(expanded ? null : draft.id)
+                    }
+                  >
+                    <span style={{ fontWeight: 600, fontSize: 16 }}>{draft.phrase}</span>
+
+                    {visibleTags.map((tag) => (
+                      <span key={tag} className="badge" style={tagPillStyle(tag)}>
+                        {tag}
+                      </span>
+                    ))}
+
+                    {draft.tags.length > 4 && !showAllTags && (
+                      <button
+                        className="tag-pill"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowAllTagsByPendingDraft((prev) => ({
+                            ...prev,
+                            [draft.id]: true,
+                          }));
+                        }}
+                      >
+                        +{draft.tags.length - 4} more
                       </button>
                     )}
 
-                    {allTags.length > 4 && showAllNewPhraseTags && (
-                      <button className="tag-pill" onClick={() => setShowAllNewPhraseTags(false)}>
+                    {draft.tags.length > 4 && showAllTags && (
+                      <button
+                        className="tag-pill"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowAllTagsByPendingDraft((prev) => ({
+                            ...prev,
+                            [draft.id]: false,
+                          }));
+                        }}
+                      >
                         show less
                       </button>
                     )}
                   </div>
-                )}
 
-                <div className="controls-row" style={{ marginBottom: 12 }}>
-                  <input
-                    value={newTagInput}
-                    onChange={(e) => setNewTagInput(e.target.value)}
-                    placeholder="New tag..."
-                    className="text-input"
-                    style={{ width: "100%", maxWidth: 260 }}
-                  />
-
-                  <button onClick={addNewTag} className="button-secondary">
-                    Add tag
+                  <button
+                    type="button"
+                    className="button-secondary button-small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedPendingDraftId(expanded ? null : draft.id);
+                    }}
+                  >
+                    {expanded ? "Close" : "Open"}
                   </button>
                 </div>
 
-                {selectedTags.length > 0 && (
-                  <div>
-                    <div style={{ marginBottom: 8 }} className="meta-text">
-                      Selected tags
-                    </div>
-
-                    <div className="tag-row">
-                      {selectedTags.map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => removeSelectedTag(tag)}
-                          className="tag-pill-selected"
-                          style={tagPillStyle(tag)}
-                        >
-                          {tag} ✕
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="mini-box">
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 12,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div>
-                    <h3 className="subsection-title" style={{ marginBottom: 4 }}>
-                      Quick lookup
-                    </h3>
-                    <div className="meta-text">
-                      Look up an English word or phrase and save it to drafts.
-                    </div>
-                  </div>
-
-                  <button onClick={toggleLookupOpen} className="button-secondary">
-                    {lookupOpen ? "Hide lookup" : "Open lookup"}
-                  </button>
+                <div className="inline-row">
+                  <span
+                    className="badge"
+                    style={{ backgroundColor: "#ede9fe", color: "#5b21b6" }}
+                  >
+                    draft
+                  </span>
                 </div>
-
-                {lookupOpen && (
-                  <div style={{ marginTop: 14 }}>
-                    <div className="controls-row" style={{ alignItems: "flex-start" }}>
-                      <input
-                        ref={lookupInputRef}
-                        value={lookupEnglish}
-                        onChange={(e) => setLookupEnglish(e.target.value)}
-                        onKeyDown={handleLookupKeyDown}
-                        placeholder="Type English word or phrase..."
-                        className="text-input"
-                        style={{ width: "100%", maxWidth: 320 }}
-                      />
-
-                      <button
-                        onClick={() => void lookupWord()}
-                        disabled={lookupLoading || !lookupEnglish.trim()}
-                        className={`button-primary ${
-                          lookupLoading || !lookupEnglish.trim() ? "button-disabled" : ""
-                        }`}
-                      >
-                        {lookupLoading ? "Looking up..." : "Look up"}
-                      </button>
-                    </div>
-
-                    {lookupStatus && (
-                      <div className="meta-text" style={{ marginTop: 10 }}>
-                        {lookupStatus}
-                      </div>
-                    )}
-
-                    {lookupResult && (
-                      <div style={{ marginTop: 14 }}>
-                        <p><b>Danish:</b> {lookupResult.corrected_phrase}</p>
-                        <p><b>Explanation:</b> {lookupResult.short_explanation_da}</p>
-                        <p><b>Example:</b> {lookupResult.example_da}</p>
-                        <p><b>English:</b> {lookupResult.translation_en}</p>
-                        <p><b>Example EN:</b> {lookupResult.example_en}</p>
-                        <p><b>Extra info:</b> {lookupResult.extra_info || "—"}</p>
-
-                        <div style={{ marginTop: 10 }}>
-                          <button
-                            onClick={() => void saveLookupResultAsPendingDraft()}
-                            disabled={savingLookupDraft}
-                            className={`button-secondary ${
-                              savingLookupDraft ? "button-disabled" : ""
-                            }`}
-                          >
-                            {savingLookupDraft ? "Saving..." : "Create draft"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {draftCard && (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <h2 className="section-title" style={{ marginBottom: 12 }}>
-            Draft card
-          </h2>
-
-          {!isEditingDraft ? (
-            <>
-              <p><b>Phrase:</b> {draftCard.phrase}</p>
-              <p><b>Translation:</b> {draftCard.translation_en}</p>
-              <p><b>Forklaring:</b> {draftCard.short_explanation}</p>
-              <p><b>Eksempel:</b> {draftCard.example_da}</p>
-              <p><b>Example:</b> {draftCard.example_en}</p>
-              <p><b>Extra info:</b> {draftCard.extra_info || "—"}</p>
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  flexWrap: "wrap",
-                  marginTop: 12,
-                  marginBottom: 12,
-                }}
-              >
-                <input
-                  value={draftTagInput}
-                  onChange={(e) => setDraftTagInput(e.target.value)}
-                  onKeyDown={handleDraftTagKeyDown}
-                  placeholder="New tag..."
-                  className="text-input"
-                  style={{ width: "100%", maxWidth: 180 }}
-                />
-
-                {visibleDraftTags.map((tag) => {
-                  const selected = draftCard.tags.includes(tag);
-
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => toggleDraftTag(tag)}
-                      className={selected ? "tag-pill-selected" : "tag-pill"}
-                      style={tagPillStyle(tag)}
-                    >
-                      {selected ? `${tag} ✕` : tag}
-                    </button>
-                  );
-                })}
-
-                {allTags.length > 4 && !showAllDraftTags && (
-                  <button className="tag-pill" onClick={() => setShowAllDraftTags(true)}>
-                    +{allTags.length - 4} more
-                  </button>
-                )}
-
-                {allTags.length > 4 && showAllDraftTags && (
-                  <button className="tag-pill" onClick={() => setShowAllDraftTags(false)}>
-                    show less
-                  </button>
-                )}
               </div>
 
-              <div className="controls-row" style={{ marginTop: 10 }}>
-                <button onClick={startEditingDraft} className="button-secondary">
-                  Edit
-                </button>
+              {expanded && (
+                <div style={{ marginTop: 12 }}>
+                  <p><b>Translation:</b> {draft.translation_en}</p>
+                  <p><b>Forklaring:</b> {draft.short_explanation}</p>
+                  <p><b>Eksempel:</b> {draft.example_da}</p>
+                  <p><b>Example:</b> {draft.example_en}</p>
+                  <p><b>Extra info:</b> {draft.extra_info || "—"}</p>
 
-                <button onClick={() => void refreshDraftAnalysis()} className="button-secondary">
-                  Refresh AI
-                </button>
-
-                <button onClick={() => void saveDraftToDatabase()} className="button-primary">
-                  Save to database
-                </button>
-
-                <button onClick={discardDraft} className="button-danger">
-                  Discard draft
-                </button>
-              </div>
-            </>
-          ) : (
-            <div style={{ marginTop: 16 }}>
-              <input
-                value={draftEdit?.phrase ?? ""}
-                onChange={(e) =>
-                  setDraftEdit((prev) => (prev ? { ...prev, phrase: e.target.value } : prev))
-                }
-                className="text-input"
-                style={{ width: "100%", marginBottom: 8 }}
-              />
-
-              <input
-                value={draftEdit?.translation_en ?? ""}
-                onChange={(e) =>
-                  setDraftEdit((prev) =>
-                    prev ? { ...prev, translation_en: e.target.value } : prev
-                  )
-                }
-                className="text-input"
-                style={{ width: "100%", marginBottom: 8 }}
-              />
-
-              <textarea
-                value={draftEdit?.short_explanation ?? ""}
-                onChange={(e) =>
-                  setDraftEdit((prev) =>
-                    prev ? { ...prev, short_explanation: e.target.value } : prev
-                  )
-                }
-                className="textarea-input"
-                style={{ marginBottom: 8 }}
-              />
-
-              <textarea
-                value={draftEdit?.example_da ?? ""}
-                onChange={(e) =>
-                  setDraftEdit((prev) =>
-                    prev ? { ...prev, example_da: e.target.value } : prev
-                  )
-                }
-                className="textarea-input"
-                style={{ marginBottom: 8 }}
-              />
-
-              <textarea
-                value={draftEdit?.example_en ?? ""}
-                onChange={(e) =>
-                  setDraftEdit((prev) =>
-                    prev ? { ...prev, example_en: e.target.value } : prev
-                  )
-                }
-                className="textarea-input"
-                style={{ marginBottom: 8 }}
-              />
-
-              <input
-                value={draftEdit?.extra_info ?? ""}
-                onChange={(e) =>
-                  setDraftEdit((prev) =>
-                    prev ? { ...prev, extra_info: e.target.value } : prev
-                  )
-                }
-                className="text-input"
-                placeholder="Extra info..."
-                style={{ width: "100%", marginBottom: 8 }}
-              />
-
-              <div className="controls-row" style={{ marginTop: 10 }}>
-                <button onClick={saveDraftEdit} className="button-primary">
-                  Save
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsEditingDraft(false);
-                    setDraftEdit(null);
-                  }}
-                  className="button-secondary"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 12,
-          marginBottom: 24,
-        }}
-      >
-        <div className="card" style={{ margin: 0 }}>
-          <div className="meta-text">Total saved</div>
-          <div style={{ fontSize: 28, fontWeight: 700 }}>{totalSaved}</div>
-        </div>
-
-        <div className="card" style={{ margin: 0 }}>
-          <div className="meta-text">Active vocabulary</div>
-          <div style={{ fontSize: 28, fontWeight: 700 }}>{activeVocabularyCount}</div>
-        </div>
-
-        <div className="card" style={{ margin: 0 }}>
-          <div className="meta-text">Needs attention</div>
-          <div style={{ fontSize: 28, fontWeight: 700 }}>{needsReviewCount}</div>
-        </div>
-      </div>
-
-      {pendingDrafts.length > 0 && (
-        <>
-          <h2 className="section-title">Pending drafts</h2>
-
-          {pendingDrafts.map((draft) => {
-            const expanded = expandedPendingDraftId === draft.id;
-            const showAllTags = !!showAllTagsByPendingDraft[draft.id];
-            const visibleTags = showAllTags ? draft.tags : draft.tags.slice(0, 4);
-
-            const showAllInlinePicker = !!showAllInlinePickerByPendingDraft[draft.id];
-            const visibleInlinePickerTags = showAllInlinePicker ? allTags : allTags.slice(0, 4);
-
-            return (
-              <div key={draft.id} className="card">
-                <div
-                  className="controls-row"
-                  style={{ justifyContent: "space-between", alignItems: "flex-start" }}
-                >
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flex: 1 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        flexWrap: "wrap",
-                        cursor: "pointer",
-                        flex: 1,
-                      }}
-                      onClick={() =>
-                        setExpandedPendingDraftId(expanded ? null : draft.id)
-                      }
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 16 }}>{draft.phrase}</span>
-
-                      {visibleTags.map((tag) => (
-                        <span key={tag} className="badge" style={tagPillStyle(tag)}>
-                          {tag}
-                        </span>
-                      ))}
-
-                      {draft.tags.length > 4 && !showAllTags && (
-                        <button
-                          className="tag-pill"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowAllTagsByPendingDraft((prev) => ({
-                              ...prev,
-                              [draft.id]: true,
-                            }));
-                          }}
-                        >
-                          +{draft.tags.length - 4} more
-                        </button>
-                      )}
-
-                      {draft.tags.length > 4 && showAllTags && (
-                        <button
-                          className="tag-pill"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowAllTagsByPendingDraft((prev) => ({
-                              ...prev,
-                              [draft.id]: false,
-                            }));
-                          }}
-                        >
-                          show less
-                        </button>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      className="button-secondary button-small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setExpandedPendingDraftId(expanded ? null : draft.id);
-                      }}
-                    >
-                      {expanded ? "Close" : "Open"}
-                    </button>
-                  </div>
-
-                  <div className="inline-row">
-                    <span
-                      className="badge"
-                      style={{ backgroundColor: "#ede9fe", color: "#5b21b6" }}
-                    >
-                      draft
-                    </span>
-                  </div>
-                </div>
-
-                {expanded && (
-                  <div style={{ marginTop: 12 }}>
-                    <p><b>Translation:</b> {draft.translation_en}</p>
-                    <p><b>Forklaring:</b> {draft.short_explanation}</p>
-                    <p><b>Eksempel:</b> {draft.example_da}</p>
-                    <p><b>Example:</b> {draft.example_en}</p>
-                    <p><b>Extra info:</b> {draft.extra_info || "—"}</p>
-
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        flexWrap: "wrap",
-                        marginTop: 12,
-                        marginBottom: 12,
-                      }}
-                    >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      flexWrap: "wrap",
+                      marginTop: 12,
+                      marginBottom: 12,
+                    }}
+                  >
                       <input
                         value={inlineTagInputByPendingDraft[draft.id] || ""}
                         onChange={(e) =>
@@ -2095,201 +2113,223 @@ export default function Home() {
                         style={{ width: "100%", maxWidth: 160 }}
                       />
 
-                      {visibleInlinePickerTags.map((tag) => {
-                        const selectedOnDraft = draft.tags.includes(tag);
+                    {visibleInlinePickerTags.map((tag) => {
+                      const selectedOnDraft = draft.tags.includes(tag);
 
-                        return (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => void toggleInlinePendingDraftTag(draft, tag)}
-                            className={selectedOnDraft ? "tag-pill-selected" : "tag-pill"}
-                            style={tagPillStyle(tag)}
-                          >
-                            {selectedOnDraft ? `${tag} ✕` : tag}
-                          </button>
-                        );
-                      })}
-
-                      {allTags.length > 4 && !showAllInlinePicker && (
+                      return (
                         <button
-                          className="tag-pill"
-                          onClick={() =>
-                            setShowAllInlinePickerByPendingDraft((prev) => ({
-                              ...prev,
-                              [draft.id]: true,
-                            }))
-                          }
+                          key={tag}
+                          type="button"
+                          onClick={() => void toggleInlinePendingDraftTag(draft, tag)}
+                          className={selectedOnDraft ? "tag-pill-selected" : "tag-pill"}
+                          style={tagPillStyle(tag)}
                         >
-                          +{allTags.length - 4} more
+                          {selectedOnDraft ? `${tag} ✕` : tag}
                         </button>
-                      )}
+                      );
+                    })}
 
-                      {allTags.length > 4 && showAllInlinePicker && (
-                        <button
-                          className="tag-pill"
-                          onClick={() =>
-                            setShowAllInlinePickerByPendingDraft((prev) => ({
-                              ...prev,
-                              [draft.id]: false,
-                            }))
-                          }
-                        >
-                          show less
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="controls-row" style={{ marginTop: 10 }}>
+                    {allTags.length > 4 && !showAllInlinePicker && (
                       <button
-                        onClick={() => startEditingPendingDraft(draft)}
-                        className="button-secondary"
+                        className="tag-pill"
+                        onClick={() =>
+                          setShowAllInlinePickerByPendingDraft((prev) => ({
+                            ...prev,
+                            [draft.id]: true,
+                          }))
+                        }
                       >
-                        Edit
+                        +{allTags.length - 4} more
                       </button>
+                    )}
 
+                    {allTags.length > 4 && showAllInlinePicker && (
                       <button
-                        onClick={() => void refreshPendingDraftAnalysis(draft)}
-                        className="button-secondary"
+                        className="tag-pill"
+                        onClick={() =>
+                          setShowAllInlinePickerByPendingDraft((prev) => ({
+                            ...prev,
+                            [draft.id]: false,
+                          }))
+                        }
                       >
-                        Refresh AI
+                        show less
                       </button>
-
-                      <button
-                        onClick={() => void savePendingDraftToDatabase(draft)}
-                        className="button-primary"
-                      >
-                        Save to database
-                      </button>
-
-                      <button
-                        onClick={() => void discardPendingDraft(draft.id)}
-                        className="button-danger"
-                      >
-                        Discard draft
-                      </button>
-                    </div>
-
-                    {editingPendingDraftId === draft.id && pendingDraftEdit && (
-                      <div style={{ marginTop: 16 }}>
-                        <input
-                          value={pendingDraftEdit.phrase}
-                          onChange={(e) =>
-                            setPendingDraftEdit({
-                              ...pendingDraftEdit,
-                              phrase: e.target.value,
-                            })
-                          }
-                          className="text-input"
-                          style={{ width: "100%", marginBottom: 8 }}
-                        />
-
-                        <input
-                          value={pendingDraftEdit.translation_en}
-                          onChange={(e) =>
-                            setPendingDraftEdit({
-                              ...pendingDraftEdit,
-                              translation_en: e.target.value,
-                            })
-                          }
-                          className="text-input"
-                          style={{ width: "100%", marginBottom: 8 }}
-                        />
-
-                        <textarea
-                          value={pendingDraftEdit.short_explanation}
-                          onChange={(e) =>
-                            setPendingDraftEdit({
-                              ...pendingDraftEdit,
-                              short_explanation: e.target.value,
-                            })
-                          }
-                          className="textarea-input"
-                          style={{ marginBottom: 8 }}
-                        />
-
-                        <textarea
-                          value={pendingDraftEdit.example_da}
-                          onChange={(e) =>
-                            setPendingDraftEdit({
-                              ...pendingDraftEdit,
-                              example_da: e.target.value,
-                            })
-                          }
-                          className="textarea-input"
-                          style={{ marginBottom: 8 }}
-                        />
-
-                        <textarea
-                          value={pendingDraftEdit.example_en}
-                          onChange={(e) =>
-                            setPendingDraftEdit({
-                              ...pendingDraftEdit,
-                              example_en: e.target.value,
-                            })
-                          }
-                          className="textarea-input"
-                          style={{ marginBottom: 8 }}
-                        />
-
-                        <input
-                          value={pendingDraftEdit.extra_info}
-                          onChange={(e) =>
-                            setPendingDraftEdit({
-                              ...pendingDraftEdit,
-                              extra_info: e.target.value,
-                            })
-                          }
-                          className="text-input"
-                          placeholder="Extra info..."
-                          style={{ width: "100%", marginBottom: 8 }}
-                        />
-
-                        <div className="controls-row" style={{ marginTop: 10 }}>
-                          <button
-                            onClick={() => void savePendingDraftEdit(draft.id)}
-                            className="button-primary"
-                          >
-                            Save
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setEditingPendingDraftId(null);
-                              setPendingDraftEdit(null);
-                            }}
-                            className="button-secondary"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
                     )}
                   </div>
-                )}
-              </div>
-            );
-          })}
-        </>
-      )}
 
-      {analysis && (
-        <div className="card">
-          <h2 className="subsection-title">Latest saved card</h2>
-          <p><b>Phrase:</b> {analysis.phrase}</p>
-          <p><b>Translation:</b> {analysis.translation_en}</p>
-          <p><b>Forklaring:</b> {analysis.short_explanation}</p>
-          <p><b>Eksempel:</b> {analysis.example_da}</p>
-          <p><b>Example:</b> {analysis.example_en}</p>
-          <p><b>Extra info:</b> {analysis.extra_info || "—"}</p>
-          <p><b>Tags:</b> {analysis.tags.length > 0 ? analysis.tags.join(", ") : "—"}</p>
-        </div>
-      )}
+                  <div className="controls-row" style={{ marginTop: 10 }}>
+                    <button
+                      onClick={() => startEditingPendingDraft(draft)}
+                      className="button-secondary"
+                    >
+                      Edit
+                    </button>
 
-      <div style={{ marginTop: 28 }}>
-        <h2 className="section-title">Phrase database</h2>
+                    <button
+                      onClick={() => void refreshPendingDraftAnalysis(draft)}
+                      className="button-secondary"
+                    >
+                      Refresh AI
+                    </button>
 
-        <div className="controls-row" style={{ marginBottom: 12 }}>
+                    <button
+                      onClick={() => void savePendingDraftToDatabase(draft)}
+                      className="button-primary"
+                    >
+                      Save to database
+                    </button>
+
+                    <button
+                      onClick={() => void discardPendingDraft(draft.id)}
+                      className="button-danger"
+                    >
+                      Discard draft
+                    </button>
+                  </div>
+
+                  {editingPendingDraftId === draft.id && pendingDraftEdit && (
+                    <div style={{ marginTop: 16 }}>
+                      <input
+                        value={pendingDraftEdit.phrase}
+                        onChange={(e) =>
+                          setPendingDraftEdit({
+                            ...pendingDraftEdit,
+                            phrase: e.target.value,
+                          })
+                        }
+                        className="text-input"
+                        style={{ width: "100%", marginBottom: 8 }}
+                      />
+
+                      <input
+                        value={pendingDraftEdit.translation_en}
+                        onChange={(e) =>
+                          setPendingDraftEdit({
+                            ...pendingDraftEdit,
+                            translation_en: e.target.value,
+                          })
+                        }
+                        className="text-input"
+                        style={{ width: "100%", marginBottom: 8 }}
+                      />
+
+                      <textarea
+                        value={pendingDraftEdit.short_explanation}
+                        onChange={(e) =>
+                          setPendingDraftEdit({
+                            ...pendingDraftEdit,
+                            short_explanation: e.target.value,
+                          })
+                        }
+                        className="textarea-input"
+                        style={{ marginBottom: 8 }}
+                      />
+
+                      <textarea
+                        value={pendingDraftEdit.example_da}
+                        onChange={(e) =>
+                          setPendingDraftEdit({
+                            ...pendingDraftEdit,
+                            example_da: e.target.value,
+                          })
+                        }
+                        className="textarea-input"
+                        style={{ marginBottom: 8 }}
+                      />
+
+                      <textarea
+                        value={pendingDraftEdit.example_en}
+                        onChange={(e) =>
+                          setPendingDraftEdit({
+                            ...pendingDraftEdit,
+                            example_en: e.target.value,
+                          })
+                        }
+                        className="textarea-input"
+                        style={{ marginBottom: 8 }}
+                      />
+
+                      <input
+                        value={pendingDraftEdit.extra_info}
+                        onChange={(e) =>
+                          setPendingDraftEdit({
+                            ...pendingDraftEdit,
+                            extra_info: e.target.value,
+                          })
+                        }
+                        className="text-input"
+                        placeholder="Extra info..."
+                        style={{ width: "100%", marginBottom: 8 }}
+                      />
+
+                      <div className="controls-row" style={{ marginTop: 10 }}>
+                        <button
+                          onClick={() => void savePendingDraftEdit(draft.id)}
+                          className="button-primary"
+                        >
+                          Save
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setEditingPendingDraftId(null);
+                            setPendingDraftEdit(null);
+                          }}
+                          className="button-secondary"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </>
+    )}
+
+    {analysis && (
+      <div className="card">
+        <h2 className="subsection-title">Latest saved card</h2>
+        <p><b>Phrase:</b> {analysis.phrase}</p>
+        <p><b>Translation:</b> {analysis.translation_en}</p>
+        <p><b>Forklaring:</b> {analysis.short_explanation}</p>
+        <p><b>Eksempel:</b> {analysis.example_da}</p>
+        <p><b>Example:</b> {analysis.example_en}</p>
+        <p><b>Extra info:</b> {analysis.extra_info || "—"}</p>
+        <p><b>Tags:</b> {analysis.tags.length > 0 ? analysis.tags.join(", ") : "—"}</p>
+      </div>
+    )}
+
+    <div style={{ marginTop: 28 }}>
+      <div style={{ marginBottom: 10 }}>
+        <h2 className="section-title" style={{ marginBottom: 0 }}>
+          Library
+        </h2>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+          marginBottom: 10,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            gap: 12,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
           <button
             onClick={() => setDatabaseViewMode("attention")}
             className={databaseViewMode === "attention" ? "button-primary" : "button-secondary"}
@@ -2301,87 +2341,135 @@ export default function Home() {
             onClick={() => setDatabaseViewMode("all")}
             className={databaseViewMode === "all" ? "button-primary" : "button-secondary"}
           >
-            All phrases
+            All
           </button>
+        </div>
 
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            gap: 12,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
           <button
             onClick={() => setLibraryFiltersOpen((prev) => !prev)}
             className="button-secondary"
+            title="Search and filter"
+            aria-label="Search and filter"
+            style={{
+              minHeight: 42,
+              minWidth: 42,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
-            {libraryFiltersOpen ? "Hide filters" : "Show filters"}
+            🔍
+          </button>
+
+          <button
+            onClick={() => setShowManageTags((prev) => !prev)}
+            className="button-secondary"
+            style={{
+              minHeight: 42,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            Tags
           </button>
         </div>
+      </div>
 
-        <div style={{ marginBottom: 8 }} className="meta-text">
-          {databaseViewMode === "attention"
-            ? "Showing 10 phrases that need attention most"
-            : `Showing all ${cards.length} saved phrases`}
-        </div>
+      <div style={{ marginBottom: 12 }} className="meta-text">
+        {databaseViewMode === "attention"
+          ? "Showing 10 phrases that need attention most"
+          : `Showing all ${cards.length} saved phrases`}
+      </div>
 
-        {libraryFiltersOpen && (
-          <div className="card" style={{ marginTop: 0 }}>
-            <div style={{ marginBottom: 16 }}>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search phrases..."
-                className="text-input"
-                style={{ width: "100%", maxWidth: 360 }}
-              />
-            </div>
-
-            <div style={{ marginBottom: 10 }} className="meta-text">
-              Filter database by tag
-            </div>
+      {(libraryFiltersOpen || tagFilter || search) && (
+        <div className="card" style={{ marginTop: 0, marginBottom: 16 }}>
+          <div style={{ display: "grid", gap: 14 }}>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search phrase, translation, explanation, example, or tag..."
+              className="text-input"
+              style={{ width: "100%", maxWidth: 420 }}
+            />
 
             {allTags.length > 0 && (
-              <div className="tag-row" style={{ marginBottom: 12 }}>
-                {visibleFilterTags.map((tag) => {
-                  const selected = tagFilter === tag;
+              <>
+                <div className="meta-text">Filter by tag</div>
 
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => toggleTagFilter(tag)}
-                      className={selected ? "tag-pill-selected" : "tag-pill"}
-                      style={tagPillStyle(tag)}
-                    >
-                      {tag}
+                <div className="tag-row">
+                  {visibleFilterTags.map((tag) => {
+                    const selected = tagFilter === tag;
+
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => toggleTagFilter(tag)}
+                        className={selected ? "tag-pill-selected" : "tag-pill"}
+                        style={tagPillStyle(tag)}
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+
+                  {allTags.length > 4 && !showAllFilterTags && (
+                    <button className="tag-pill" onClick={() => setShowAllFilterTags(true)}>
+                      +{allTags.length - 4} more
                     </button>
-                  );
-                })}
+                  )}
 
-                {allTags.length > 4 && !showAllFilterTags && (
-                  <button className="tag-pill" onClick={() => setShowAllFilterTags(true)}>
-                    +{allTags.length - 4} more
-                  </button>
-                )}
-
-                {allTags.length > 4 && showAllFilterTags && (
-                  <button className="tag-pill" onClick={() => setShowAllFilterTags(false)}>
-                    show less
-                  </button>
-                )}
-              </div>
+                  {allTags.length > 4 && showAllFilterTags && (
+                    <button className="tag-pill" onClick={() => setShowAllFilterTags(false)}>
+                      show less
+                    </button>
+                  )}
+                </div>
+              </>
             )}
 
-            {tagFilter && (
-              <div style={{ marginBottom: 16 }}>
-                <button className="button-secondary button-small" onClick={() => setTagFilter(null)}>
-                  Clear tag filter
+            {(search || tagFilter) && (
+              <div className="inline-action-row">
+                {search && (
+                  <span
+                    className="badge"
+                    style={{ backgroundColor: "#f3f4f6", color: "#374151" }}
+                  >
+                    Search: {search}
+                  </span>
+                )}
+
+                {tagFilter && (
+                  <button
+                    className="tag-pill-selected"
+                    onClick={() => setTagFilter(null)}
+                    style={tagPillStyle(tagFilter)}
+                  >
+                    {tagFilter} ✕
+                  </button>
+                )}
+
+                <button
+                  className="button-secondary button-small"
+                  onClick={() => {
+                    setSearch("");
+                    setTagFilter(null);
+                  }}
+                >
+                  Clear
                 </button>
               </div>
             )}
-
-            <div style={{ marginTop: 8, marginBottom: 12 }}>
-              <button
-                onClick={() => setShowManageTags((prev) => !prev)}
-                className="button-secondary"
-              >
-                {showManageTags ? "Hide tag management" : "Manage tags"}
-              </button>
-            </div>
 
             {showManageTags && (
               <div className="mini-box" style={{ marginTop: 0 }}>
@@ -2411,98 +2499,52 @@ export default function Home() {
               </div>
             )}
           </div>
-        )}
+        </div>
+      )}
 
-        {filteredCards.map((card) => {
-          const expanded = expandedId === card.id;
-          const selected = selectedForPractice.includes(card.id);
-          const stale = staleLabel(card);
-          const showStats = !!showStatsByCard[card.id];
-          const showAllTags = !!showAllTagsByCard[card.id];
-          const visibleTags = showAllTags ? card.tags : card.tags.slice(0, 4);
+      {filteredCards.map((card) => {
+        const expanded = expandedId === card.id;
+        const selected = selectedForPractice.includes(card.id);
+        const stale = staleLabel(card);
+        const showStats = !!showStatsByCard[card.id];
+        const showAllTags = !!showAllTagsByCard[card.id];
+        const visibleTags = showAllTags ? card.tags : card.tags.slice(0, 4);
 
-          const showAllInlinePicker = !!showAllInlinePickerByCard[card.id];
-          const visibleInlinePickerTags = showAllInlinePicker ? allTags : allTags.slice(0, 4);
+        const showAllInlinePicker = !!showAllInlinePickerByCard[card.id];
+        const visibleInlinePickerTags = showAllInlinePicker ? allTags : allTags.slice(0, 4);
 
-          return (
-            <div key={card.id} className="card">
+        return (
+          <div key={card.id} className="card">
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "auto 1fr auto",
+                gap: 12,
+                alignItems: "start",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={(e) => handleSelectionToggle(e.target.checked, card.id)}
+                style={{ marginTop: 4 }}
+              />
+
               <div
-                className="controls-row"
-                style={{ justifyContent: "space-between", alignItems: "flex-start" }}
+                onClick={() => setExpandedId(expanded ? null : card.id)}
+                style={{ cursor: "pointer", minWidth: 0 }}
               >
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flex: 1 }}>
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    onChange={(e) => handleSelectionToggle(e.target.checked, card.id)}
-                  />
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    marginBottom: 6,
+                  }}
+                >
+                  <span style={{ fontWeight: 650, fontSize: 16 }}>{card.phrase}</span>
 
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: 12,
-                      flex: 1,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        flexWrap: "wrap",
-                        cursor: "pointer",
-                        flex: 1,
-                      }}
-                      onClick={() => setExpandedId(expanded ? null : card.id)}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: 16 }}>{card.phrase}</span>
-
-                      {visibleTags.map((tag) => (
-                        <span key={tag} className="badge" style={tagPillStyle(tag)}>
-                          {tag}
-                        </span>
-                      ))}
-
-                      {card.tags.length > 4 && !showAllTags && (
-                        <button
-                          className="tag-pill"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowAllTagsByCard((prev) => ({ ...prev, [card.id]: true }));
-                          }}
-                        >
-                          +{card.tags.length - 4} more
-                        </button>
-                      )}
-
-                      {card.tags.length > 4 && showAllTags && (
-                        <button
-                          className="tag-pill"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setShowAllTagsByCard((prev) => ({ ...prev, [card.id]: false }));
-                          }}
-                        >
-                          show less
-                        </button>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      className="button-secondary button-small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setExpandedId(expanded ? null : card.id);
-                      }}
-                    >
-                      {expanded ? "Close" : "Open"}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="inline-row">
                   {stale && (
                     <span
                       className="badge"
@@ -2519,209 +2561,261 @@ export default function Home() {
                     {masteryText(card)}
                   </span>
                 </div>
-              </div>
 
-              {expanded && (
-                <div style={{ marginTop: 12 }}>
-                  <p><b>Translation:</b> {card.translation_en}</p>
-                  <p><b>Forklaring:</b> {card.short_explanation}</p>
-                  <p><b>Eksempel:</b> {card.example_da}</p>
-                  <p><b>Example:</b> {card.example_en}</p>
-                  <p><b>Extra info:</b> {card.extra_info || "—"}</p>
+                <div
+                  style={{
+                    color: "#4b5563",
+                    fontSize: 14,
+                    marginBottom: 8,
+                  }}
+                >
+                  {card.translation_en}
+                </div>
 
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      flexWrap: "wrap",
-                      marginTop: 12,
-                      marginBottom: 12,
-                    }}
-                  >
-                    <input
-                      value={inlineTagInputByCard[card.id] || ""}
-                      onChange={(e) =>
-                        setInlineTagInputByCard((prev) => ({
-                          ...prev,
-                          [card.id]: e.target.value,
-                        }))
-                      }
-                      onKeyDown={(e) => void handleInlineCardTagKeyDown(e, card)}
-                      placeholder="New tag..."
-                      className="text-input"
-                      style={{ width: "100%", maxWidth: 160 }}
-                    />
+                <div className="tag-row">
+                  {visibleTags.map((tag) => (
+                    <span key={tag} className="badge" style={tagPillStyle(tag)}>
+                      {tag}
+                    </span>
+                  ))}
 
-                    {visibleInlinePickerTags.map((tag) => {
-                      const selectedOnCard = card.tags.includes(tag);
-
-                      return (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => void toggleInlineCardTag(card, tag)}
-                          className={selectedOnCard ? "tag-pill-selected" : "tag-pill"}
-                          style={tagPillStyle(tag)}
-                        >
-                          {selectedOnCard ? `${tag} ✕` : tag}
-                        </button>
-                      );
-                    })}
-
-                    {allTags.length > 4 && !showAllInlinePicker && (
-                      <button
-                        className="tag-pill"
-                        onClick={() =>
-                          setShowAllInlinePickerByCard((prev) => ({
-                            ...prev,
-                            [card.id]: true,
-                          }))
-                        }
-                      >
-                        +{allTags.length - 4} more
-                      </button>
-                    )}
-
-                    {allTags.length > 4 && showAllInlinePicker && (
-                      <button
-                        className="tag-pill"
-                        onClick={() =>
-                          setShowAllInlinePickerByCard((prev) => ({
-                            ...prev,
-                            [card.id]: false,
-                          }))
-                        }
-                      >
-                        show less
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="controls-row" style={{ marginTop: 10 }}>
-                    <button onClick={() => startEditing(card)} className="button-secondary">
-                      Edit
+                  {card.tags.length > 4 && !showAllTags && (
+                    <button
+                      className="tag-pill"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAllTagsByCard((prev) => ({ ...prev, [card.id]: true }));
+                      }}
+                    >
+                      +{card.tags.length - 4} more
                     </button>
-
-                    <button onClick={() => void refreshAnalysis(card)} className="button-secondary">
-                      Refresh AI
-                    </button>
-
-                    <button onClick={() => toggleShowStats(card.id)} className="button-secondary">
-                      {showStats ? "Hide stats" : "Show stats"}
-                    </button>
-
-                    <button onClick={() => void resetProgress(card.id)} className="button-secondary">
-                      Reset progress
-                    </button>
-
-                    <button onClick={() => void deleteCard(card.id)} className="button-danger">
-                      Delete
-                    </button>
-                  </div>
-
-                  {showStats && (
-                    <div style={{ marginTop: 12 }}>
-                      <p><b>Attempts:</b> {attemptsOf(card)}</p>
-                      <p><b>Correct:</b> {correctOf(card)}</p>
-                      <p><b>Almost:</b> {almostOf(card)}</p>
-                      <p><b>Wrong:</b> {wrongOf(card)}</p>
-                      <p><b>Stage:</b> {masteryLabel(card)}</p>
-                      <p><b>Points:</b> {masteryPoints(card).toFixed(1)}</p>
-                      <p><b>Spontaneous correct:</b> {spontaneousCorrectOf(card)}</p>
-                      <p><b>Spontaneous almost:</b> {spontaneousAlmostOf(card)}</p>
-                      <p><b>Spontaneous wrong:</b> {spontaneousWrongOf(card)}</p>
-                      <p><b>Retry correct:</b> {retryCorrectOf(card)}</p>
-                      <p><b>Requested again:</b> {reRequestedOf(card)}</p>
-                      <p>
-                        <b>Last attempted:</b>{" "}
-                        {card.last_practiced_at
-                          ? new Date(card.last_practiced_at).toLocaleString()
-                          : "Never"}
-                      </p>
-                    </div>
                   )}
 
-                  {editingId === card.id && editDraft && (
-                    <div style={{ marginTop: 16 }}>
-                      <input
-                        value={editDraft.phrase}
-                        onChange={(e) =>
-                          setEditDraft({ ...editDraft, phrase: e.target.value })
-                        }
-                        className="text-input"
-                        style={{ width: "100%", marginBottom: 8 }}
-                      />
-
-                      <input
-                        value={editDraft.translation_en}
-                        onChange={(e) =>
-                          setEditDraft({ ...editDraft, translation_en: e.target.value })
-                        }
-                        className="text-input"
-                        style={{ width: "100%", marginBottom: 8 }}
-                      />
-
-                      <textarea
-                        value={editDraft.short_explanation}
-                        onChange={(e) =>
-                          setEditDraft({ ...editDraft, short_explanation: e.target.value })
-                        }
-                        className="textarea-input"
-                        style={{ marginBottom: 8 }}
-                      />
-
-                      <textarea
-                        value={editDraft.example_da}
-                        onChange={(e) =>
-                          setEditDraft({ ...editDraft, example_da: e.target.value })
-                        }
-                        className="textarea-input"
-                        style={{ marginBottom: 8 }}
-                      />
-
-                      <textarea
-                        value={editDraft.example_en}
-                        onChange={(e) =>
-                          setEditDraft({ ...editDraft, example_en: e.target.value })
-                        }
-                        className="textarea-input"
-                        style={{ marginBottom: 8 }}
-                      />
-
-                      <input
-                        value={editDraft.extra_info}
-                        onChange={(e) =>
-                          setEditDraft({ ...editDraft, extra_info: e.target.value })
-                        }
-                        className="text-input"
-                        placeholder="Extra info..."
-                        style={{ width: "100%", marginBottom: 8 }}
-                      />
-
-                      <div className="controls-row" style={{ marginTop: 10 }}>
-                        <button onClick={() => void saveEdit(card.id)} className="button-primary">
-                          Save
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setEditingId(null);
-                            setEditDraft(null);
-                          }}
-                          className="button-secondary"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
+                  {card.tags.length > 4 && showAllTags && (
+                    <button
+                      className="tag-pill"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAllTagsByCard((prev) => ({ ...prev, [card.id]: false }));
+                      }}
+                    >
+                      show less
+                    </button>
                   )}
                 </div>
-              )}
+              </div>
+
+              <button
+                type="button"
+                className="button-secondary button-small"
+                onClick={() => setExpandedId(expanded ? null : card.id)}
+              >
+                {expanded ? "Close" : "Open"}
+              </button>
             </div>
-          );
-        })}
-      </div>
-    </main>
-  );
+
+            {expanded && (
+              <div style={{ marginTop: 12 }}>
+                <p><b>Translation:</b> {card.translation_en}</p>
+                <p><b>Forklaring:</b> {card.short_explanation}</p>
+                <p><b>Eksempel:</b> {card.example_da}</p>
+                <p><b>Example:</b> {card.example_en}</p>
+                <p><b>Extra info:</b> {card.extra_info || "—"}</p>
+
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    flexWrap: "wrap",
+                    marginTop: 12,
+                    marginBottom: 12,
+                  }}
+                >
+                  <input
+                    value={inlineTagInputByCard[card.id] || ""}
+                    onChange={(e) =>
+                      setInlineTagInputByCard((prev) => ({
+                        ...prev,
+                        [card.id]: e.target.value,
+                      }))
+                    }
+                    onKeyDown={(e) => void handleInlineCardTagKeyDown(e, card)}
+                    placeholder="New tag..."
+                    className="text-input"
+                    style={{ width: "100%", maxWidth: 160 }}
+                  />
+
+                  {visibleInlinePickerTags.map((tag) => {
+                    const selectedOnCard = card.tags.includes(tag);
+
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => void toggleInlineCardTag(card, tag)}
+                        className={selectedOnCard ? "tag-pill-selected" : "tag-pill"}
+                        style={tagPillStyle(tag)}
+                      >
+                        {selectedOnCard ? `${tag} ✕` : tag}
+                      </button>
+                    );
+                  })}
+
+                  {allTags.length > 4 && !showAllInlinePicker && (
+                    <button
+                      className="tag-pill"
+                      onClick={() =>
+                        setShowAllInlinePickerByCard((prev) => ({
+                          ...prev,
+                          [card.id]: true,
+                        }))
+                      }
+                    >
+                      +{allTags.length - 4} more
+                    </button>
+                  )}
+
+                  {allTags.length > 4 && showAllInlinePicker && (
+                    <button
+                      className="tag-pill"
+                      onClick={() =>
+                        setShowAllInlinePickerByCard((prev) => ({
+                          ...prev,
+                          [card.id]: false,
+                        }))
+                      }
+                    >
+                      show less
+                    </button>
+                  )}
+                </div>
+
+                <div className="controls-row" style={{ marginTop: 10 }}>
+                  <button onClick={() => startEditing(card)} className="button-secondary">
+                    Edit
+                  </button>
+
+                  <button onClick={() => void refreshAnalysis(card)} className="button-secondary">
+                    Reanalyze
+                  </button>
+
+                  <button onClick={() => toggleShowStats(card.id)} className="button-secondary">
+                    {showStats ? "Hide stats" : "Show stats"}
+                  </button>
+
+                  <button onClick={() => void resetProgress(card.id)} className="button-secondary">
+                    Reset progress
+                  </button>
+
+                  <button onClick={() => void deleteCard(card.id)} className="button-danger">
+                    Delete
+                  </button>
+                </div>
+
+                {showStats && (
+                  <div style={{ marginTop: 12 }}>
+                    <p><b>Attempts:</b> {attemptsOf(card)}</p>
+                    <p><b>Correct:</b> {correctOf(card)}</p>
+                    <p><b>Almost:</b> {almostOf(card)}</p>
+                    <p><b>Wrong:</b> {wrongOf(card)}</p>
+                    <p><b>Stage:</b> {masteryLabel(card)}</p>
+                    <p><b>Points:</b> {masteryPoints(card).toFixed(1)}</p>
+                    <p><b>Spontaneous correct:</b> {spontaneousCorrectOf(card)}</p>
+                    <p><b>Spontaneous almost:</b> {spontaneousAlmostOf(card)}</p>
+                    <p><b>Spontaneous wrong:</b> {spontaneousWrongOf(card)}</p>
+                    <p><b>Retry correct:</b> {retryCorrectOf(card)}</p>
+                    <p><b>Requested again:</b> {reRequestedOf(card)}</p>
+                    <p>
+                      <b>Last attempted:</b>{" "}
+                      {card.last_practiced_at
+                        ? new Date(card.last_practiced_at).toLocaleString()
+                        : "Never"}
+                    </p>
+                  </div>
+                )}
+
+                {editingId === card.id && editDraft && (
+                  <div style={{ marginTop: 16 }}>
+                    <input
+                      value={editDraft.phrase}
+                      onChange={(e) =>
+                        setEditDraft({ ...editDraft, phrase: e.target.value })
+                      }
+                      className="text-input"
+                      style={{ width: "100%", marginBottom: 8 }}
+                    />
+
+                    <input
+                      value={editDraft.translation_en}
+                      onChange={(e) =>
+                        setEditDraft({ ...editDraft, translation_en: e.target.value })
+                      }
+                      className="text-input"
+                      style={{ width: "100%", marginBottom: 8 }}
+                    />
+
+                    <textarea
+                      value={editDraft.short_explanation}
+                      onChange={(e) =>
+                        setEditDraft({ ...editDraft, short_explanation: e.target.value })
+                      }
+                      className="textarea-input"
+                      style={{ marginBottom: 8 }}
+                    />
+
+                    <textarea
+                      value={editDraft.example_da}
+                      onChange={(e) =>
+                        setEditDraft({ ...editDraft, example_da: e.target.value })
+                      }
+                      className="textarea-input"
+                      style={{ marginBottom: 8 }}
+                    />
+
+                    <textarea
+                      value={editDraft.example_en}
+                      onChange={(e) =>
+                        setEditDraft({ ...editDraft, example_en: e.target.value })
+                      }
+                      className="textarea-input"
+                      style={{ marginBottom: 8 }}
+                    />
+
+                    <input
+                      value={editDraft.extra_info}
+                      onChange={(e) =>
+                        setEditDraft({ ...editDraft, extra_info: e.target.value })
+                      }
+                      className="text-input"
+                      placeholder="Extra info..."
+                      style={{ width: "100%", marginBottom: 8 }}
+                    />
+
+                    <div className="controls-row" style={{ marginTop: 10 }}>
+                      <button onClick={() => void saveEdit(card.id)} className="button-primary">
+                        Save
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setEditingId(null);
+                          setEditDraft(null);
+                        }}
+                        className="button-secondary"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  </main>
+);
+ 
 }

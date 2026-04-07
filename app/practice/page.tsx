@@ -281,7 +281,7 @@ export default function PracticePage() {
   };
 
   const loadCardsFromSupabase = async () => {
-    const { data, error } = await supabase.from("phrases").select("*");
+    const { data, error } = await supabase.from("phrases_demo").select("*");
 
     if (error) {
       console.error("Failed to load phrases:", error);
@@ -326,7 +326,7 @@ export default function PracticePage() {
     const nowIso = new Date().toISOString();
 
     const { error } = await supabase
-      .from("phrases")
+      .from("phrases_demo")
       .update({
         times_re_requested: nextRequestedCount,
         last_requested_again_at: nowIso,
@@ -545,7 +545,7 @@ const applyCardUpdates = async (
   await Promise.all(
     updatedCards.map(async (card) => {
       const { error } = await supabase
-        .from("phrases")
+        .from("phrases_demo")
         .update({
           times_attempted: card.times_attempted ?? 0,
           times_correct: card.times_correct ?? 0,
