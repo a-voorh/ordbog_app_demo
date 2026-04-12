@@ -78,6 +78,11 @@ type DraftCard = {
   tags: string[];
 };
 
+type GeneratedUsageVariant = {
+  variant_da: string;
+  variant_tag?: string | null;
+};
+
 type DatabaseViewMode = "attention" | "all";
 
 const normalizeTag = (tag: string) => tag.trim();
@@ -390,6 +395,102 @@ export default function Home() {
     const days = daysSinceLastPracticed(card);
     return label === "new" || label === "familiar" || (days !== null && days > 14);
   }).length;
+
+  const generateUsageVariants = async (input: {
+    phrase: string;
+    translation_en: string;
+    short_explanation: string;
+    example_da: string;
+    example_en: string;
+    extra_info?: string | null;
+  }) => {
+    try {
+      const res = await fetch("/api/generate-usage-variants", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error("Usage variant backend error:", data);
+        return [] as GeneratedUsageVariant[];
+      }
+
+      try {
+        const parsed = JSON.parse(data.result) as GeneratedUsageVariant[];
+
+        const cleaned = parsed
+          .map((item) => ({
+            variant_da: item.variant_da?.trim(),
+            variant_tag: item.variant_tag?.trim() || null,
+          }))
+          .filter((item) => item.variant_da);
+
+        const deduped = Array.from(
+          new Map(
+            cleaned.map((item) => [normalizePhraseKey(item.variant_da), item])
+          ).values()
+        );
+
+        return deduped;
+      } catch (err) {
+        console.error("Invalid JSON from usage variant route:", data?.result, err);
+        return [] as GeneratedUsageVariant[];
+      }
+    } catch (err) {
+      console.error("Failed to generate usage variants:", err);
+      return [] as GeneratedUsageVariant[];
+    }
+  };
+
+  const replaceUsageVariantsForPhrase = async (
+    phraseId: string,
+    input: {
+      phrase: string;
+      translation_en: string;
+      short_explanation: string;
+      example_da: string;
+      example_en: string;
+      extra_info?: string | null;
+    }
+  ) => {
+    const generatedVariants = await generateUsageVariants(input);
+
+    const { error: deleteError } = await supabase
+      .from("phrase_usage_variants")
+      .delete()
+      .eq("phrase_id", phraseId);
+
+    if (deleteError) {
+      console.error("Failed to clear existing usage variants:", deleteError);
+      return;
+    }
+
+    if (generatedVariants.length === 0) {
+      return;
+    }
+
+    const rows = generatedVariants.map((variant) => ({
+      phrase_id: phraseId,
+      variant_da: variant.variant_da,
+      variant_tag: variant.variant_tag ?? null,
+      usable_for_matching: true,
+      usable_for_practice: true,
+      source: "generated",
+    }));
+
+    const { error: insertError } = await supabase
+      .from("phrase_usage_variants")
+      .insert(rows);
+
+    if (insertError) {
+      console.error("Failed to save usage variants:", insertError);
+    }
+  };
 
   const bumpRequestedAgain = async (phraseKey: string) => {
     const existingCard = cards.find(
@@ -761,6 +862,15 @@ export default function Home() {
       return;
     }
 
+    await replaceUsageVariantsForPhrase(newCard.id, {
+      phrase: newCard.phrase,
+      translation_en: newCard.translation_en,
+      short_explanation: newCard.short_explanation,
+      example_da: newCard.example_da,
+      example_en: newCard.example_en,
+      extra_info: newCard.extra_info,
+    });
+
     setCards((prev) => sortByPhraseDa([...prev, newCard]));
     setAnalysis(newCard);
     setExpandedId(newCard.id);
@@ -1073,6 +1183,15 @@ export default function Home() {
       return;
     }
 
+    await replaceUsageVariantsForPhrase(id, {
+      phrase: updates.phrase,
+      translation_en: updates.translation_en,
+      short_explanation: updates.short_explanation,
+      example_da: updates.example_da,
+      example_en: updates.example_en,
+      extra_info: updates.extra_info,
+    });
+
     setCards((prev) =>
       sortByPhraseDa(prev.map((c) => (c.id === id ? { ...c, ...updates } : c)))
     );
@@ -1170,6 +1289,15 @@ export default function Home() {
       alert("Could not refresh this phrase.");
       return;
     }
+
+    await replaceUsageVariantsForPhrase(card.id, {
+      phrase: updates.phrase,
+      translation_en: updates.translation_en,
+      short_explanation: updates.short_explanation,
+      example_da: updates.example_da,
+      example_en: updates.example_en,
+      extra_info: updates.extra_info,
+    });
 
     setCards((prev) =>
       sortByPhraseDa(prev.map((c) => (c.id === card.id ? { ...c, ...updates } : c)))
@@ -1271,6 +1399,15 @@ export default function Home() {
       alert("Could not save draft to database.");
       return;
     }
+
+    await replaceUsageVariantsForPhrase(newCard.id, {
+      phrase: newCard.phrase,
+      translation_en: newCard.translation_en,
+      short_explanation: newCard.short_explanation,
+      example_da: newCard.example_da,
+      example_en: newCard.example_en,
+      extra_info: newCard.extra_info,
+    });
 
     const { error: deleteError } = await supabase
       .from("phrase_drafts_demo")
