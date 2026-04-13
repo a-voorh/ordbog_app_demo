@@ -7,6 +7,23 @@ type ChatMessage = {
   content: string;
 };
 
+type PhraseCard = {
+  id: string;
+  phrase: string;
+};
+
+type VariantRow = {
+  phrase_id: string;
+  variant_da: string;
+  usable_for_matching: boolean;
+};
+
+type PhraseWithVariants = {
+  id: string;
+  phrase: string;
+  matchingVariants: string[];
+};
+
 const normalizeText = (value: string) =>
   value
     .toLowerCase()
@@ -109,7 +126,76 @@ export async function POST(req: Request) {
       );
     }
 
-    const phraseList: string[] = cards.map((card: any) => card.phrase);
+    const typedCards: PhraseCard[] = cards
+      .filter(
+        (card: any) =>
+          card &&
+          typeof card.id === "string" &&
+          typeof card.phrase === "string"
+      )
+      .map((card: any) => ({
+        id: card.id,
+        phrase: card.phrase,
+      }));
+
+    if (typedCards.length === 0) {
+      return Response.json(
+        { error: "Phrase cards are missing valid id/phrase values" },
+        { status: 400 }
+      );
+    }
+
+    const phraseIds = typedCards.map((card) => card.id);
+    const phraseList: string[] = typedCards.map((card) => card.phrase);
+
+    let phrasesWithVariants: PhraseWithVariants[] = typedCards.map((card) => ({
+      id: card.id,
+      phrase: card.phrase,
+      matchingVariants: [],
+    }));
+
+    if (phraseIds.length > 0) {
+      const { data: variantRows, error: variantError } = await supabase
+        .from("phrase_usage_variants_main")
+        .select("phrase_id, variant_da, usable_for_matching")
+        .in("phrase_id", phraseIds)
+        .eq("usable_for_matching", true);
+
+      if (variantError) {
+        console.error("Failed to load phrase variants:", variantError);
+      } else {
+        const variantsByPhraseId = new Map<string, string[]>();
+
+        for (const row of (variantRows || []) as VariantRow[]) {
+          const variant = row.variant_da?.trim();
+          if (!variant) continue;
+
+          const existing = variantsByPhraseId.get(row.phrase_id) || [];
+          existing.push(variant);
+          variantsByPhraseId.set(row.phrase_id, existing);
+        }
+
+        phrasesWithVariants = typedCards.map((card) => ({
+          id: card.id,
+          phrase: card.phrase,
+          matchingVariants: Array.from(
+            new Set(variantsByPhraseId.get(card.id) || [])
+          ),
+        }));
+      }
+    }
+
+    const phraseListWithVariantsForPrompt = phrasesWithVariants
+      .map((item) => {
+        const variantsText =
+          item.matchingVariants.length > 0
+            ? `\n  Accepted stored variants:\n${item.matchingVariants
+                .map((v) => `  - ${v}`)
+                .join("\n")}`
+            : "";
+        return `- Base phrase: ${item.phrase}${variantsText}`;
+      })
+      .join("\n");
 
     const conversationMessages: Array<{
       role: "system" | "user" | "assistant";
@@ -395,8 +481,8 @@ Return ONLY the Danish reply.`,
             role: "system",
             content: `You evaluate whether a learner used target Danish phrases correctly in their latest message.
 
-Target phrases:
-${phraseList.map((p) => `- ${p}`).join("\n")}
+Target phrases and accepted stored variants:
+${phraseListWithVariantsForPrompt}
 
 You must inspect:
 1. the learner message
@@ -410,6 +496,14 @@ CORE PRINCIPLE
 
 Evaluate the TARGET PHRASE separately from the rest of the sentence.
 
+A target phrase counts as used if the learner used:
+- the base phrase itself
+- a natural inflected grammatical form of the base phrase
+- an accepted stored variant listed under that phrase
+- a natural inflected grammatical form of an accepted stored variant
+
+If the learner uses an accepted stored variant correctly, treat it as usage of the target phrase.
+
 - A target phrase can still be "correct" if it is used correctly and the sentence is meaningful, even if there is a small grammar issue elsewhere.
 - In such a case:
   - keep status = "correct"
@@ -421,7 +515,7 @@ Evaluate the TARGET PHRASE separately from the rest of the sentence.
 --------------------------------
 
 Use "correct" when ALL are true:
-- the learner used the target phrase or a natural inflected/grammatical variant of it
+- the learner used the target phrase or a natural inflected/grammatical variant of it, including accepted stored variants
 - the target phrase itself is grammatically correct in the learner's sentence
 - the target phrase is used with the correct meaning and function
 - the full learner sentence is semantically meaningful and plausible in Danish
@@ -446,7 +540,7 @@ OR
 - a required contextual relation is missing
 
 Use "unused" when:
-- the learner did not actually use the phrase
+- the learner did not actually use the phrase, the accepted stored variants, or natural inflected forms of them
 
 --------------------------------
 2. INFLECTION (VERY IMPORTANT)
@@ -472,6 +566,8 @@ CRITICAL:
 If the learner uses a correct conjugated verb form (e.g. "spilder", "spildte", "spildt"),
 you MUST treat it as correct usage of the phrase.
 You MUST NOT require the infinitive form "at + verb".
+
+The same rule applies to accepted stored variants.
 
 --------------------------------
 3. RULES ABOUT "AT"
@@ -521,6 +617,8 @@ Do not invent missing determiners or pronouns when the learner wording is alread
 If the learner expresses a similar meaning using a DIFFERENT construction,
 do not treat that as a wrong attempt at the target phrase.
 
+This also applies if the learner uses a related expression that is NOT among the accepted stored variants.
+
 Examples:
 - target phrase: "at spilde"
   learner writes: "spild af tid"
@@ -529,11 +627,11 @@ Examples:
 
 - target phrase: "at tage fat på"
   learner writes a nearby noun-based expression instead
-  -> if the stored phrase itself was not actually used, mark "unused"
+  -> if the stored phrase itself or an accepted stored variant was not actually used, mark "unused"
 
 Rule:
 - if the learner used a semantically related word or expression,
-  but not the target phrase itself nor a natural inflected form of it,
+  but not the target phrase itself, not an accepted stored variant, and not a natural inflected form of either,
   mark it as "unused", not "wrong"
 
 Tone:
@@ -601,7 +699,7 @@ This includes cases where:
 - the learner used a related word
 - the learner used a related expression
 - the learner expressed the same general idea differently
-- but the stored target phrase itself was not actually used
+- but the stored target phrase or accepted stored variant itself was not actually used
 
 Optional neutral comment:
 - "A related expression was used, but not this phrase."
@@ -626,6 +724,7 @@ Very important:
 - do NOT claim something is wrong and then repeat the same wording as the correction
 - do NOT claim that the learner should change the phrase to a form that is already present in the learner message
 - do NOT claim that a correct inflected form is wrong just because it differs from the base form
+- do NOT claim that an accepted stored variant is wrong merely because it differs from the base phrase
 
 --------------------------------
 9. DO NOT OVER-CORRECT
@@ -665,6 +764,7 @@ Rules:
 - DO NOT imagine another version of the phrase
 - DO NOT normalize away from the learner's actual wording
 - DO NOT confuse a nearby base form with the actual learner form
+- DO NOT reject a phrase simply because the learner used an accepted stored variant instead of the base phrase
 
 If your suggested correction equals detectedText, leave suggestion empty.
 Only mention grammar mistakes if they are real and certain.
@@ -686,7 +786,8 @@ Follow these priorities:
 - only use "wrong" when the phrase really fails in grammar, meaning, or context
 - prefer "wrong" over "correct" only when the learner sentence is not clearly meaningful
 - prefer "wrong" over "almost" when the phrase is placed into a sentence that does not make semantic sense
-- if the learner uses a related noun or different construction instead of the target phrase, prefer "unused" over "almost" or "wrong"
+- if the learner uses a related noun or different construction instead of the target phrase or accepted stored variants, prefer "unused" over "almost" or "wrong"
+
 Example of clearly wrong meaning:
 - "Jeg aftog ham"
   → wrong, because the verb "aftage" cannot normally take a person as its object
@@ -787,9 +888,6 @@ ${userMessage}`,
         );
       }
 
-      // -----------------------------
-      // Spontaneous usage evaluation
-      // -----------------------------
       const isFirstTurn =
         !previousAssistantMessage || !previousAssistantMessage.trim();
 

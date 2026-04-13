@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { createClient } from "@supabase/supabase-js";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -15,11 +16,33 @@ type PhraseFeedback = {
   sentenceComment: string;
 };
 
+type PhraseCard = {
+  id: string;
+  phrase: string;
+};
+
+type VariantRow = {
+  phrase_id: string;
+  variant_da: string;
+  usable_for_matching: boolean;
+};
+
+type PhraseWithVariants = {
+  id: string;
+  phrase: string;
+  matchingVariants: string[];
+};
+
 export async function POST(req: Request) {
   try {
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
     const body = await req.json();
     const cards = body.cards || [];
@@ -48,7 +71,76 @@ export async function POST(req: Request) {
       );
     }
 
-    const phraseList: string[] = cards.map((card: any) => card.phrase);
+    const typedCards: PhraseCard[] = cards
+      .filter(
+        (card: any) =>
+          card &&
+          typeof card.id === "string" &&
+          typeof card.phrase === "string"
+      )
+      .map((card: any) => ({
+        id: card.id,
+        phrase: card.phrase,
+      }));
+
+    if (typedCards.length === 0) {
+      return Response.json(
+        { error: "Phrase cards are missing valid id/phrase values" },
+        { status: 400 }
+      );
+    }
+
+    const phraseIds = typedCards.map((card) => card.id);
+    const phraseList: string[] = typedCards.map((card) => card.phrase);
+
+    let phrasesWithVariants: PhraseWithVariants[] = typedCards.map((card) => ({
+      id: card.id,
+      phrase: card.phrase,
+      matchingVariants: [],
+    }));
+
+    if (phraseIds.length > 0) {
+      const { data: variantRows, error: variantError } = await supabase
+        .from("phrase_usage_variants_main")
+        .select("phrase_id, variant_da, usable_for_matching")
+        .in("phrase_id", phraseIds)
+        .eq("usable_for_matching", true);
+
+      if (variantError) {
+        console.error("Failed to load phrase variants:", variantError);
+      } else {
+        const variantsByPhraseId = new Map<string, string[]>();
+
+        for (const row of (variantRows || []) as VariantRow[]) {
+          const variant = row.variant_da?.trim();
+          if (!variant) continue;
+
+          const existing = variantsByPhraseId.get(row.phrase_id) || [];
+          existing.push(variant);
+          variantsByPhraseId.set(row.phrase_id, existing);
+        }
+
+        phrasesWithVariants = typedCards.map((card) => ({
+          id: card.id,
+          phrase: card.phrase,
+          matchingVariants: Array.from(
+            new Set(variantsByPhraseId.get(card.id) || [])
+          ),
+        }));
+      }
+    }
+
+    const phraseListWithVariantsForPrompt = phrasesWithVariants
+      .map((item) => {
+        const variantsText =
+          item.matchingVariants.length > 0
+            ? `\n  Accepted stored variants:\n${item.matchingVariants
+                .map((v) => `  - ${v}`)
+                .join("\n")}`
+            : "";
+        return `- Base phrase: ${item.phrase}${variantsText}`;
+      })
+      .join("\n");
 
     const previousAssistantMessage =
       [...(history as ChatMessage[])]
@@ -77,9 +169,10 @@ Only change judgments that are:
 - internally inconsistent
 - based on hallucinated corrections
 - based on confusing the base form with the actual learner form
+- based on rejecting an accepted stored variant that should count
 
-Target phrases:
-${phraseList.map((p) => `- ${p}`).join("\n")}
+Target phrases and accepted stored variants:
+${phraseListWithVariantsForPrompt}
 
 --------------------------------
 VERY IMPORTANT REVIEW PHILOSOPHY
@@ -118,6 +211,8 @@ REVIEW PRINCIPLES
 7. Do NOT give a suggestion that repeats the learner's wording.
 8. Do NOT scold for an unused phrase.
 9. Do NOT punish missing commas or harmless punctuation.
+10. Accepted stored variants count as valid usage of the target phrase.
+11. Natural inflected forms of accepted stored variants also count.
 
 --------------------------------
 IMPORTANT DANISH RULES
@@ -146,6 +241,8 @@ IMPORTANT DANISH RULES
   - changing "energiforbrug" to "energiforbruget"
   - changing wording just because another version also exists
 
+- If the learner uses an accepted stored variant correctly, that is valid usage of the target phrase.
+
 --------------------------------
 PUNCTUATION / COMMA RULE
 --------------------------------
@@ -173,6 +270,8 @@ Very important:
 - do not improve a retry-based "almost" into "correct" unless the original judgment is clearly linguistically wrong
 - do not let second opinion function as a way to bypass retry scoring
 - if the current feedback is already reasonable, preserve it
+- do not reject a phrase just because the learner used an accepted stored variant instead of the base phrase
+- do not reject a phrase just because the learner used a correct inflected form of an accepted stored variant
 
 Only mention grammar mistakes if they are real and certain.
 If there are no mistakes, explicitly say:

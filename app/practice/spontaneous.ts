@@ -17,6 +17,16 @@ type PhraseRow = {
   times_spontaneous_wrong: number | null;
 };
 
+type VariantRow = {
+  phrase_id: string;
+  variant_da: string;
+  usable_for_matching: boolean;
+};
+
+type CandidatePhrase = PhraseRow & {
+  matchingVariants: string[];
+};
+
 type SpontaneousMatch = {
   phrase: string;
   status: SpontaneousStatus;
@@ -62,11 +72,14 @@ const stripLeadingAt = (phrase: string) =>
 const tokenize = (text: string) =>
   normalizeText(text).split(" ").filter(Boolean);
 
-const overlapScore = (message: string, phrase: string) => {
+const overlapScoreForTexts = (message: string, texts: string[]) => {
   const messageTokens = new Set(tokenize(message));
-  const phraseTokens = tokenize(stripLeadingAt(phrase));
 
-  return phraseTokens.filter((token) => messageTokens.has(token)).length;
+  return texts.reduce((bestScore, text) => {
+    const phraseTokens = tokenize(stripLeadingAt(text));
+    const score = phraseTokens.filter((token) => messageTokens.has(token)).length;
+    return Math.max(bestScore, score);
+  }, 0);
 };
 
 const daysSinceIso = (iso: string | null) => {
@@ -84,7 +97,7 @@ const isRecentWithinDays = (iso: string | null, days: number) => {
 };
 
 const getFilteredNonTargetRows = (
-  allRows: PhraseRow[],
+  allRows: CandidatePhrase[],
   currentTargetPhrases: string[]
 ) => {
   const currentTargets = new Set(
@@ -124,7 +137,7 @@ const getFilteredNonTargetRows = (
   });
 };
 
-const getResurfacingPriority = (row: PhraseRow) => {
+const getResurfacingPriority = (row: CandidatePhrase) => {
   const lastPracticeDays = daysSinceIso(row.last_practiced_at) ?? 9999;
   const lastSpontaneousDays = daysSinceIso(row.last_spontaneous_used_at) ?? 9999;
   const spontaneousExposure =
@@ -139,7 +152,7 @@ const getResurfacingPriority = (row: PhraseRow) => {
   );
 };
 
-const getFirstTurnPool = (filteredRows: PhraseRow[]) => {
+const getFirstTurnPool = (filteredRows: CandidatePhrase[]) => {
   if (filteredRows.length <= UNLIMITED_POOL_THRESHOLD) {
     return filteredRows;
   }
@@ -149,17 +162,24 @@ const getFirstTurnPool = (filteredRows: PhraseRow[]) => {
     .slice(0, LARGE_DB_FIRST_TURN_CAP);
 };
 
-const getLaterTurnPool = (filteredRows: PhraseRow[], userMessage: string) => {
+const getLaterTurnPool = (
+  filteredRows: CandidatePhrase[],
+  userMessage: string
+) => {
   if (filteredRows.length <= UNLIMITED_POOL_THRESHOLD) {
     return filteredRows;
   }
 
   return [...filteredRows]
-    .map((row) => ({
-      ...row,
-      candidateScore:
-        overlapScore(userMessage, row.phrase) * 10 + getResurfacingPriority(row),
-    }))
+    .map((row) => {
+      const textsToMatch = [row.phrase, ...row.matchingVariants];
+      return {
+        ...row,
+        candidateScore:
+          overlapScoreForTexts(userMessage, textsToMatch) * 10 +
+          getResurfacingPriority(row),
+      };
+    })
     .sort((a, b) => b.candidateScore - a.candidateScore)
     .slice(0, LARGE_DB_LATER_TURN_CAP);
 };
@@ -206,7 +226,48 @@ export async function evaluateAndApplySpontaneousUsage({
     return [];
   }
 
-  const allRows = (data || []) as PhraseRow[];
+  const phraseRows = (data || []) as PhraseRow[];
+
+  const phraseIds = phraseRows.map((row) => row.id);
+
+  let allRows: CandidatePhrase[] = phraseRows.map((row) => ({
+    ...row,
+    matchingVariants: [],
+  }));
+
+  if (phraseIds.length > 0) {
+    const { data: variantRows, error: variantError } = await supabase
+      .from("phrase_usage_variants_main")
+      .select("phrase_id, variant_da, usable_for_matching")
+      .in("phrase_id", phraseIds)
+      .eq("usable_for_matching", true);
+
+    if (variantError) {
+      console.error(
+        "Failed to load variants for spontaneous evaluation:",
+        variantError
+      );
+    } else {
+      const variantsByPhraseId = new Map<string, string[]>();
+
+      for (const row of (variantRows || []) as VariantRow[]) {
+        const variant = row.variant_da?.trim();
+        if (!variant) continue;
+
+        const existing = variantsByPhraseId.get(row.phrase_id) || [];
+        existing.push(variant);
+        variantsByPhraseId.set(row.phrase_id, existing);
+      }
+
+      allRows = phraseRows.map((row) => ({
+        ...row,
+        matchingVariants: Array.from(
+          new Set(variantsByPhraseId.get(row.id) || [])
+        ),
+      }));
+    }
+  }
+
   const filteredRows = getFilteredNonTargetRows(allRows, currentTargetPhrases);
 
   const candidatePool = isFirstTurn
@@ -218,19 +279,38 @@ export async function evaluateAndApplySpontaneousUsage({
     return [];
   }
 
-  const candidatePhraseList = candidatePool.map((row) => row.phrase);
   const candidateMap = new Map(
     candidatePool.map((row) => [normalizeText(row.phrase), row])
   );
+
   const currentTargets = new Set(
     currentTargetPhrases.map((phrase) => normalizeText(phrase))
   );
+
+  const candidatePhraseBlock = candidatePool
+    .map((row) => {
+      const variantsText =
+        row.matchingVariants.length > 0
+          ? `\n  Accepted stored variants:\n${row.matchingVariants
+              .map((variant) => `  - ${variant}`)
+              .join("\n")}`
+          : "";
+
+      return `- Base phrase: ${row.phrase}${variantsText}`;
+    })
+    .join("\n");
 
   console.log("[spontaneous] user message:", trimmedMessage);
   console.log("[spontaneous] total phrases:", allRows.length);
   console.log("[spontaneous] filtered pool size:", filteredRows.length);
   console.log("[spontaneous] candidate pool size:", candidatePool.length);
-  console.log("[spontaneous] candidate phrases:", candidatePhraseList);
+  console.log(
+    "[spontaneous] candidate phrases:",
+    candidatePool.map((row) => ({
+      phrase: row.phrase,
+      matchingVariants: row.matchingVariants,
+    }))
+  );
 
   const evaluationResponse = await openai.responses.create({
     model: "gpt-4.1-mini",
@@ -242,12 +322,14 @@ export async function evaluateAndApplySpontaneousUsage({
 Current target phrases:
 ${currentTargetPhrases.map((p) => `- ${p}`).join("\n") || "(none)"}
 
-Candidate non-target saved phrases:
-${candidatePhraseList.map((p) => `- ${p}`).join("\n")}
+Candidate non-target saved phrases and accepted stored variants:
+${candidatePhraseBlock}
 
 Rules:
 - detect real usage only, not merely related ideas
 - accept natural inflections
+- accepted stored variants count as valid usage of their base phrase
+- natural inflected forms of accepted stored variants also count
 - ignore current target phrases
 - decide whether usage is truly spontaneous
 - copied or directly repeated material from the previous assistant message is not spontaneous
@@ -255,12 +337,15 @@ Rules:
 - do not include phrases with status "unused"
 - do not return target phrases
 - only return phrases from the candidate non-target saved phrases list
+- in the "phrase" field, ALWAYS return the base phrase exactly as listed in the candidate list
+- do NOT return a variant in the "phrase" field
+- put the exact learner wording into detectedText
 
 Return ONLY valid JSON with exactly this structure:
 {
   "spontaneousMatches": [
     {
-      "phrase": "candidate phrase",
+      "phrase": "candidate base phrase",
       "status": "correct | almost | wrong | unused",
       "detectedText": "exact matching text from learner message or empty string",
       "isSpontaneous": true,
@@ -361,10 +446,7 @@ ${trimmedMessage}`,
     }
 
     if (match.status === "unused") {
-      console.log(
-        "[spontaneous] skipped unused match:",
-        match.phrase
-      );
+      console.log("[spontaneous] skipped unused match:", match.phrase);
       return false;
     }
 
