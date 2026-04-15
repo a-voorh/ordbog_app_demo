@@ -130,6 +130,9 @@ export default function PracticePage() {
   const [practiceStage, setPracticeStage] = useState<PracticeStage>("setup");
   const [practiceMode, setPracticeMode] = useState<PracticeMode | null>(null);
   const [meaningPairs, setMeaningPairs] = useState<MeaningMatchPair[]>([]);
+  const [meaningOptions, setMeaningOptions] = useState<MeaningMatchPair[]>([]);
+  const [selectedMeaningByPhraseId, setSelectedMeaningByPhraseId] = useState<Record<string, string>>({});
+  const [activeMeaningPhraseId, setActiveMeaningPhraseId] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -184,6 +187,14 @@ export default function PracticePage() {
     }
     return Array.from(tags).sort((a, b) => a.localeCompare(b, "da"));
   }, [cards]);
+
+  const allMeaningMatched =
+    meaningPairs.length > 0 &&
+    meaningPairs.every((pair) => selectedMeaningByPhraseId[pair.phraseId]);
+
+  const meaningCorrectCount = meaningPairs.filter(
+    (pair) => selectedMeaningByPhraseId[pair.phraseId] === pair.meaning
+  ).length;
 
   const daysSinceLastPracticed = (card: PhraseCard) => {
     if (!card.last_practiced_at) return null;
@@ -334,6 +345,56 @@ export default function PracticePage() {
       phrase: card.phrase,
       meaning: card.short_explanation,
     }));
+  };
+
+  const startMeaningMatch = (cardsToPractice: PhraseCard[]) => {
+    const pairs = buildMeaningPairs(cardsToPractice);
+    setMeaningPairs(pairs);
+    setMeaningOptions(shuffle(pairs));
+    setSelectedMeaningByPhraseId({});
+    setActiveMeaningPhraseId(null);
+    setPracticeStage("meaning_match");
+  };
+
+  const assignMeaningToActivePhrase = (meaning: string) => {
+    if (!activeMeaningPhraseId) return;
+
+    setSelectedMeaningByPhraseId((prev) => {
+      const next: Record<string, string> = { ...prev };
+
+      for (const [phraseId, selectedMeaning] of Object.entries(next)) {
+        if (selectedMeaning === meaning) {
+          delete next[phraseId];
+        }
+      }
+
+      next[activeMeaningPhraseId] = meaning;
+      return next;
+    });
+
+    setActiveMeaningPhraseId(null);
+  };
+
+  const clearMeaningMatch = (phraseId: string) => {
+    setSelectedMeaningByPhraseId((prev) => {
+      const next = { ...prev };
+      delete next[phraseId];
+      return next;
+    });
+
+    if (activeMeaningPhraseId === phraseId) {
+      setActiveMeaningPhraseId(null);
+    }
+  };
+
+  const getPhraseMatchedMeaning = (phraseId: string) =>
+    selectedMeaningByPhraseId[phraseId] ?? null;
+
+  const getMeaningAssignedPhraseId = (meaning: string) => {
+    for (const [phraseId, selectedMeaning] of Object.entries(selectedMeaningByPhraseId)) {
+      if (selectedMeaning === meaning) return phraseId;
+    }
+    return null;
   };
 
   const bumpRequestedAgain = async (phraseKey: string) => {
@@ -702,6 +763,9 @@ export default function PracticePage() {
     setPracticeStage("setup");
     setPracticeMode(null);
     setMeaningPairs([]);
+    setMeaningOptions([]);
+    setSelectedMeaningByPhraseId({});
+    setActiveMeaningPhraseId(null);
 
     if (practiceSource === "selected") {
       setPracticeSource("all");
@@ -756,9 +820,7 @@ export default function PracticePage() {
       return;
     }
 
-    const pairs = buildMeaningPairs(selectedCards);
-    setMeaningPairs(pairs);
-    setPracticeStage("meaning_match");
+    startMeaningMatch(selectedCards);
   };
 
   const finishMeaningExercise = async () => {
@@ -1504,7 +1566,7 @@ export default function PracticePage() {
         ? "Selected phrases"
         : practiceSource;
 
-  return (
+          return (
   <main className="app-page">
     <div className="page-header">
       <div className="page-header-main">
@@ -1678,28 +1740,157 @@ export default function PracticePage() {
     {practiceStage === "meaning_match" && (
       <div className="card" style={{ marginBottom: 24 }}>
         <h2 className="section-title" style={{ marginBottom: 8 }}>
-          Meaning warm-up
+          Match phrase and meaning
         </h2>
 
         <div className="meta-text" style={{ marginBottom: 12 }}>
-          First version: review the target phrases and their meanings, then continue to chat.
+          Click a phrase on the left, then click the matching Danish explanation on the right.
         </div>
 
-        <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
-          {meaningPairs.map((pair) => (
-            <div key={pair.phraseId} className="mini-box">
-              <div>
-                <strong>{pair.phrase}</strong>
-              </div>
-              <div style={{ marginTop: 4 }}>{pair.meaning}</div>
+        <div className="meta-text" style={{ marginBottom: 16 }}>
+          Correct matches: {meaningCorrectCount} / {meaningPairs.length}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 16,
+            alignItems: "start",
+          }}
+        >
+          <div className="mini-box" style={{ margin: 0 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Phrases</div>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              {meaningPairs.map((pair) => {
+                const matchedMeaning = getPhraseMatchedMeaning(pair.phraseId);
+                const isActive = activeMeaningPhraseId === pair.phraseId;
+                const isCorrect = matchedMeaning === pair.meaning;
+                const hasMatch = !!matchedMeaning;
+
+                return (
+                  <div
+                    key={pair.phraseId}
+                    style={{
+                      border: isActive
+                        ? "2px solid #2563eb"
+                        : hasMatch
+                          ? "1px solid #d1d5db"
+                          : "1px solid #e5e7eb",
+                      borderRadius: 12,
+                      padding: 12,
+                      background: isActive ? "#eff6ff" : "#ffffff",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveMeaningPhraseId((prev) =>
+                          prev === pair.phraseId ? null : pair.phraseId
+                        )
+                      }
+                      className="button-secondary"
+                      style={{
+                        width: "100%",
+                        justifyContent: "flex-start",
+                        textAlign: "left",
+                        minHeight: 0,
+                      }}
+                    >
+                      <span style={{ fontWeight: 600 }}>{pair.phrase}</span>
+                    </button>
+
+                    {matchedMeaning && (
+                      <div style={{ marginTop: 8 }}>
+                        <div
+                          style={{
+                            fontSize: 14,
+                            color: isCorrect ? "#166534" : "#92400e",
+                            background: isCorrect ? "#dcfce7" : "#fef3c7",
+                            borderRadius: 10,
+                            padding: "8px 10px",
+                          }}
+                        >
+                          {matchedMeaning}
+                        </div>
+
+                        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => clearMeaningMatch(pair.phraseId)}
+                            className="button-secondary button-small"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          ))}
+          </div>
+
+          <div className="mini-box" style={{ margin: 0 }}>
+            <div style={{ fontWeight: 700, marginBottom: 10 }}>Danish meanings</div>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              {meaningOptions.map((option) => {
+                const assignedPhraseId = getMeaningAssignedPhraseId(option.meaning);
+                const isAssigned = !!assignedPhraseId;
+                const assignedPhrase = meaningPairs.find(
+                  (pair) => pair.phraseId === assignedPhraseId
+                );
+                const activeCanTakeThis = !!activeMeaningPhraseId;
+
+                return (
+                  <button
+                    key={`${option.phraseId}-${option.meaning}`}
+                    type="button"
+                    onClick={() => assignMeaningToActivePhrase(option.meaning)}
+                    disabled={!activeCanTakeThis}
+                    className={`button-secondary ${
+                      !activeCanTakeThis ? "button-disabled" : ""
+                    }`}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      justifyContent: "flex-start",
+                      whiteSpace: "normal",
+                      padding: 12,
+                      opacity: !activeCanTakeThis ? 0.7 : 1,
+                      border: isAssigned ? "2px solid #d1d5db" : undefined,
+                      background: isAssigned ? "#f9fafb" : undefined,
+                    }}
+                  >
+                    <div style={{ width: "100%" }}>
+                      <div>{option.meaning}</div>
+
+                      {assignedPhrase && (
+                        <div
+                          style={{
+                            marginTop: 6,
+                            fontSize: 12,
+                            color: "#6b7280",
+                          }}
+                        >
+                          Matched to: {assignedPhrase.phrase}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
-        <div className="controls-row">
+        <div className="controls-row" style={{ marginTop: 16 }}>
           <button
             onClick={() => void finishMeaningExercise()}
-            className="button-primary"
+            disabled={!allMeaningMatched}
+            className={`button-primary ${!allMeaningMatched ? "button-disabled" : ""}`}
           >
             Continue to chat
           </button>
