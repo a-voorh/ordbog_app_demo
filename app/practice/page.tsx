@@ -88,6 +88,15 @@ type RetryState = {
   originalFeedback: PhraseFeedback[];
 };
 
+type PracticeMode = "chat_only" | "exercises_and_chat";
+type PracticeStage = "setup" | "preview" | "meaning_match" | "chat";
+
+type MeaningMatchPair = {
+  phraseId: string;
+  phrase: string;
+  meaning: string;
+};
+
 const normalizePhraseKey = (value: string) =>
   value.trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -117,6 +126,10 @@ export default function PracticePage() {
 
   const [practiceCount, setPracticeCount] = useState<number>(3);
   const [practiceSource, setPracticeSource] = useState<PracticeSource>("all");
+
+  const [practiceStage, setPracticeStage] = useState<PracticeStage>("setup");
+  const [practiceMode, setPracticeMode] = useState<PracticeMode | null>(null);
+  const [meaningPairs, setMeaningPairs] = useState<MeaningMatchPair[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -151,7 +164,7 @@ export default function PracticePage() {
   const [lookupStatus, setLookupStatus] = useState<string | null>(null);
   const [savingLookupDraft, setSavingLookupDraft] = useState(false);
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(true);
   const [targetsOpen, setTargetsOpen] = useState(true);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [showEnglishInHover, setShowEnglishInHover] = useState(false);
@@ -180,39 +193,39 @@ export default function PracticePage() {
   };
 
   const effectiveMasteryScore = (card: PhraseCard) => {
-  if ((card.times_attempted ?? 0) === 0) return 0;
+    if ((card.times_attempted ?? 0) === 0) return 0;
 
-  const base =
-    ((card.times_correct ?? 0) + 0.8 * (card.times_almost ?? 0)) /
-    (card.times_attempted ?? 0);
+    const base =
+      ((card.times_correct ?? 0) + 0.8 * (card.times_almost ?? 0)) /
+      (card.times_attempted ?? 0);
 
-  const days = daysSinceLastPracticed(card);
+    const days = daysSinceLastPracticed(card);
 
-  let confidenceBonus = 0;
-  if ((card.times_attempted ?? 0) >= 6) confidenceBonus = 0.12;
-  else if ((card.times_attempted ?? 0) >= 3) confidenceBonus = 0.08;
-  else confidenceBonus = 0.04;
+    let confidenceBonus = 0;
+    if ((card.times_attempted ?? 0) >= 6) confidenceBonus = 0.12;
+    else if ((card.times_attempted ?? 0) >= 3) confidenceBonus = 0.08;
+    else confidenceBonus = 0.04;
 
-  let stalePenalty = 0;
-  if (days !== null) {
-    if (days > 30) stalePenalty = 0.18;
-    else if (days > 14) stalePenalty = 0.1;
-    else if (days > 7) stalePenalty = 0.05;
-  }
+    let stalePenalty = 0;
+    if (days !== null) {
+      if (days > 30) stalePenalty = 0.18;
+      else if (days > 14) stalePenalty = 0.1;
+      else if (days > 7) stalePenalty = 0.05;
+    }
 
-  const spontaneousCorrect = card.times_spontaneous_correct ?? 0;
-  const spontaneousAlmost = card.times_spontaneous_almost ?? 0;
+    const spontaneousCorrect = card.times_spontaneous_correct ?? 0;
+    const spontaneousAlmost = card.times_spontaneous_almost ?? 0;
 
-  const spontaneousBonus = Math.min(
-    0.2,
-    spontaneousCorrect * 0.05 + spontaneousAlmost * 0.025
-  );
+    const spontaneousBonus = Math.min(
+      0.2,
+      spontaneousCorrect * 0.05 + spontaneousAlmost * 0.025
+    );
 
-  return Math.max(
-    0,
-    Math.min(1, base + confidenceBonus - stalePenalty + spontaneousBonus)
-  );
-};
+    return Math.max(
+      0,
+      Math.min(1, base + confidenceBonus - stalePenalty + spontaneousBonus)
+    );
+  };
 
   const requestedAgainBoost = (card: PhraseCard) => {
     const count = card.times_re_requested ?? 0;
@@ -313,6 +326,14 @@ export default function PracticePage() {
       console.error("Invalid JSON from analyze phrase route:", data.result);
       return null;
     }
+  };
+
+  const buildMeaningPairs = (cardsToPractice: PhraseCard[]): MeaningMatchPair[] => {
+    return cardsToPractice.map((card) => ({
+      phraseId: card.id,
+      phrase: card.phrase,
+      meaning: card.short_explanation,
+    }));
   };
 
   const bumpRequestedAgain = async (phraseKey: string) => {
@@ -527,48 +548,49 @@ export default function PracticePage() {
       setTranslatingMessageIndex(null);
     }
   };
-const applyCardUpdates = async (
-  updater: (prevCards: PhraseCard[]) => PhraseCard[]
-) => {
-  const updatedCards = updater(cards);
 
-  setCards(updatedCards);
+  const applyCardUpdates = async (
+    updater: (prevCards: PhraseCard[]) => PhraseCard[]
+  ) => {
+    const updatedCards = updater(cards);
 
-  setSelectedCards((prevSelected) => {
-    const nextById = new Map(
-      updatedCards.map((card) => [card.id, card] as const)
-    );
-
-    return prevSelected.map((card) => nextById.get(card.id) ?? card);
-  });
-
-  await Promise.all(
-    updatedCards.map(async (card) => {
-      const { error } = await supabase
-        .from("phrases")
-        .update({
-          times_attempted: card.times_attempted ?? 0,
-          times_correct: card.times_correct ?? 0,
-          times_almost: card.times_almost ?? 0,
-          times_wrong: card.times_wrong ?? 0,
-          last_practiced_at: card.last_practiced_at,
-          times_retry_correct: card.times_retry_correct ?? 0,
-          times_re_requested: card.times_re_requested ?? 0,
-          last_requested_again_at: card.last_requested_again_at,
-        })
-        .eq("id", card.id);
-
-      if (error) {
-        console.error("❌ Supabase update failed:", card.phrase, error);
-      } else {
-        console.log("✅ Updated:", card.phrase);
-      }
-    })
-  );
+    setCards(updatedCards);
 
     setSelectedCards((prevSelected) => {
       const nextById = new Map(
-        updater(cards).map((card) => [card.id, card] as const)
+        updatedCards.map((card) => [card.id, card] as const)
+      );
+
+      return prevSelected.map((card) => nextById.get(card.id) ?? card);
+    });
+
+    await Promise.all(
+      updatedCards.map(async (card) => {
+        const { error } = await supabase
+          .from("phrases")
+          .update({
+            times_attempted: card.times_attempted ?? 0,
+            times_correct: card.times_correct ?? 0,
+            times_almost: card.times_almost ?? 0,
+            times_wrong: card.times_wrong ?? 0,
+            last_practiced_at: card.last_practiced_at,
+            times_retry_correct: card.times_retry_correct ?? 0,
+            times_re_requested: card.times_re_requested ?? 0,
+            last_requested_again_at: card.last_requested_again_at,
+          })
+          .eq("id", card.id);
+
+        if (error) {
+          console.error("❌ Supabase update failed:", card.phrase, error);
+        } else {
+          console.log("✅ Updated:", card.phrase);
+        }
+      })
+    );
+
+    setSelectedCards((prevSelected) => {
+      const nextById = new Map(
+        updatedCards.map((card) => [card.id, card] as const)
       );
 
       return prevSelected.map((card) => nextById.get(card.id) ?? card);
@@ -599,18 +621,6 @@ const applyCardUpdates = async (
 
     void initialize();
   }, []);
-
-  useEffect(() => {
-    if (messages.length > 0) return;
-
-    const picked = pickPracticeCards(cards, practiceCount, practiceSource, selectedIds);
-    setSelectedCards(picked);
-
-    if (practiceSource === "selected" && selectedIds.length > 0) {
-      setPracticeSource("all");
-      setSelectedIds([]);
-    }
-  }, [cards, practiceCount, practiceSource, selectedIds, messages.length]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -675,8 +685,24 @@ const applyCardUpdates = async (
     }
   };
 
+  const goToPreview = () => {
+    const picked = pickPracticeCards(cards, practiceCount, practiceSource, selectedIds);
+    setSelectedCards(picked);
+
+    if (practiceSource === "selected" && selectedIds.length > 0) {
+      setPracticeSource("all");
+      setSelectedIds([]);
+    }
+
+    setPracticeStage("preview");
+  };
+
   const endSession = () => {
     resetSessionUi();
+    setPracticeStage("setup");
+    setPracticeMode(null);
+    setMeaningPairs([]);
+
     if (practiceSource === "selected") {
       setPracticeSource("all");
       setSelectedIds([]);
@@ -721,6 +747,25 @@ const applyCardUpdates = async (
     }
   };
 
+  const choosePracticeMode = async (mode: PracticeMode) => {
+    setPracticeMode(mode);
+
+    if (mode === "chat_only") {
+      setPracticeStage("chat");
+      await startPractice(selectedCards);
+      return;
+    }
+
+    const pairs = buildMeaningPairs(selectedCards);
+    setMeaningPairs(pairs);
+    setPracticeStage("meaning_match");
+  };
+
+  const finishMeaningExercise = async () => {
+    setPracticeStage("chat");
+    await startPractice(selectedCards);
+  };
+
   const startNewWeakPhrasePractice = async () => {
     const freshCards = await loadCardsFromSupabase();
     setCards(freshCards);
@@ -733,6 +778,8 @@ const applyCardUpdates = async (
     );
     setSelectedCards(newSelection);
 
+    setPracticeMode("chat_only");
+    setPracticeStage("chat");
     await startPractice(newSelection);
   };
 
@@ -904,65 +951,63 @@ const applyCardUpdates = async (
       const nowIso = new Date().toISOString();
 
       if (retryState) {
-        applyCardUpdates((prevCards) =>
+        void applyCardUpdates((prevCards) =>
           reconcileRetryStats(prevCards, retryState.originalFeedback, rawFeedback, nowIso)
         );
         setRetryState(null);
       } else {
-  applyCardUpdates((prevCards) =>
-    prevCards.map((card) => {
-      const item = rawFeedback.find((f) => f.phrase === card.phrase);
-      if (!item || item.status === "unused") return card;
+        void applyCardUpdates((prevCards) =>
+          prevCards.map((card) => {
+            const item = rawFeedback.find((f) => f.phrase === card.phrase);
+            if (!item || item.status === "unused") return card;
 
-      const isTarget = selectedCards.some((c) => c.phrase === card.phrase);
-      const isSpontaneous = !isTarget;
+            const isTarget = selectedCards.some((c) => c.phrase === card.phrase);
+            const isSpontaneous = !isTarget;
 
-      const updated: PhraseCard = {
-        ...card,
-        last_practiced_at: nowIso,
-      };
+            const updated: PhraseCard = {
+              ...card,
+              last_practiced_at: nowIso,
+            };
 
-      // -------- NORMAL TARGET PRACTICE --------
-      if (!isSpontaneous) {
-        updated.times_attempted = (card.times_attempted ?? 0) + 1;
+            if (!isSpontaneous) {
+              updated.times_attempted = (card.times_attempted ?? 0) + 1;
 
-        if (item.status === "correct") {
-          updated.times_correct = (card.times_correct ?? 0) + 1;
-        }
+              if (item.status === "correct") {
+                updated.times_correct = (card.times_correct ?? 0) + 1;
+              }
 
-        if (item.status === "almost") {
-          updated.times_almost = (card.times_almost ?? 0) + 1;
-        }
+              if (item.status === "almost") {
+                updated.times_almost = (card.times_almost ?? 0) + 1;
+              }
 
-        if (item.status === "wrong") {
-          updated.times_wrong = (card.times_wrong ?? 0) + 1;
-        }
+              if (item.status === "wrong") {
+                updated.times_wrong = (card.times_wrong ?? 0) + 1;
+              }
+            }
+
+            if (isSpontaneous) {
+              updated.last_spontaneous_used_at = nowIso;
+
+              if (item.status === "correct") {
+                updated.times_spontaneous_correct =
+                  (card.times_spontaneous_correct ?? 0) + 1;
+              }
+
+              if (item.status === "almost") {
+                updated.times_spontaneous_almost =
+                  (card.times_spontaneous_almost ?? 0) + 1;
+              }
+
+              if (item.status === "wrong") {
+                updated.times_spontaneous_wrong =
+                  (card.times_spontaneous_wrong ?? 0) + 1;
+              }
+            }
+
+            return updated;
+          })
+        );
       }
-
-      // -------- SPONTANEOUS USAGE --------
-      if (isSpontaneous) {
-        updated.last_spontaneous_used_at = nowIso;
-
-        if (item.status === "correct") {
-          updated.times_spontaneous_correct =
-            (card.times_spontaneous_correct ?? 0) + 1;
-        }
-
-        if (item.status === "almost") {
-          updated.times_spontaneous_almost =
-            (card.times_spontaneous_almost ?? 0) + 1;
-        }
-
-        if (item.status === "wrong") {
-          updated.times_spontaneous_wrong =
-            (card.times_spontaneous_wrong ?? 0) + 1;
-        }
-      }
-
-      return updated;
-    })
-  );
-}
 
       setTimeout(() => {
         inputRef.current?.focus();
@@ -1460,774 +1505,898 @@ const applyCardUpdates = async (
         : practiceSource;
 
   return (
-    <main className="app-page">
-      <div className="page-header">
-        <div className="page-header-main">
-          <h1 className="app-title">📚 Mit ordforråd: ord for ord</h1>
-          <p className="app-subtitle">Øvetilstand</p>
-        </div>
-
-        <div className="page-header-side">
-          <Link href="/" className="link-reset">
-            <span className="nav-button">← Back to Phrase Collector</span>
-          </Link>
-        </div>
+  <main className="app-page">
+    <div className="page-header">
+      <div className="page-header-main">
+        <h1 className="app-title">📚 Mit ordforråd: ord for ord</h1>
+        <p className="app-subtitle">Øvetilstand</p>
       </div>
 
-      <div className="card card-strong" style={{ marginBottom: 24 }}>
-        <div
-          className="controls-row-spread"
-          style={{ marginBottom: settingsOpen ? 14 : 0 }}
+      <div className="page-header-side">
+        <Link href="/" className="link-reset">
+          <span className="nav-button">← Back to Phrase Collector</span>
+        </Link>
+      </div>
+    </div>
+
+    <div className="card card-strong" style={{ marginBottom: 24 }}>
+      <div
+        className="controls-row-spread"
+        style={{ marginBottom: settingsOpen ? 14 : 0 }}
+      >
+        <div>
+          <h2 className="section-title" style={{ marginBottom: 4 }}>
+            Practice setup
+          </h2>
+          <div className="meta-text">
+            Choose your pack first, then decide whether to go straight to chat or warm up with exercises.
+          </div>
+        </div>
+
+        <button
+          onClick={() => setSettingsOpen((prev) => !prev)}
+          className="button-secondary"
         >
-          <div>
-            <h2 className="section-title" style={{ marginBottom: 4 }}>
-              Conversation practice
-            </h2>
-            <div className="meta-text">
-              Configure your session here, then start it from the chat area below.
+          {settingsOpen ? "Hide settings" : "Show settings"}
+        </button>
+      </div>
+
+      {settingsOpen && (
+        <div className="mini-box" style={{ marginBottom: 0 }}>
+          <h3 className="subsection-title">Practice settings</h3>
+
+          <div className="controls-row">
+            <div>
+              <label className="meta-text" style={{ display: "block", marginBottom: 6 }}>
+                How many phrases?
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={practiceCount}
+                onChange={(e) =>
+                  setPracticeCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))
+                }
+                className="text-input"
+                style={{ width: 120 }}
+              />
+            </div>
+
+            <div>
+              <label className="meta-text" style={{ display: "block", marginBottom: 6 }}>
+                Prefer phrases from
+              </label>
+              <select
+                value={practiceSource}
+                onChange={(e) => setPracticeSource(e.target.value)}
+                className="select-input"
+                style={{ minWidth: 220 }}
+              >
+                <option value="all">All phrases</option>
+                {selectedIds.length > 0 && <option value="selected">Selected phrases</option>}
+                {allTags.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="meta-text" style={{ display: "block", marginBottom: 6 }}>
+                Hover card English
+              </label>
+              <button
+                onClick={() => setShowEnglishInHover((prev) => !prev)}
+                className="button-secondary"
+              >
+                {showEnglishInHover ? "Hide English" : "Show English"}
+              </button>
             </div>
           </div>
 
-          <button
-            onClick={() => setSettingsOpen((prev) => !prev)}
-            className="button-secondary"
-          >
-            {settingsOpen ? "Hide settings" : "Show settings"}
-          </button>
+          {practiceStage === "setup" && (
+            <div style={{ marginTop: 16 }}>
+              <button
+                onClick={goToPreview}
+                disabled={cards.length === 0}
+                className={`button-primary ${cards.length === 0 ? "button-disabled" : ""}`}
+              >
+                Create pack
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+
+    {practiceStage === "preview" && (
+      <div className="card" style={{ marginBottom: 24 }}>
+        <h2 className="section-title" style={{ marginBottom: 8 }}>
+          Your practice pack
+        </h2>
+
+        <div className="meta-text" style={{ marginBottom: 6 }}>
+          {selectedCards.length} target phrase{selectedCards.length === 1 ? "" : "s"} selected
         </div>
 
-        {settingsOpen && (
-          <div className="mini-box" style={{ marginBottom: 0 }}>
-            <h3 className="subsection-title">Practice settings</h3>
+        <div className="meta-text" style={{ marginBottom: 14 }}>
+          Source: {practiceSourceLabel} · Count: {practiceCount}
+        </div>
 
-            <div className="controls-row">
+        {selectedCards.length === 0 ? (
+          <p>No phrases available for this pack.</p>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 8,
+              marginBottom: 16,
+            }}
+          >
+            {selectedCards.map((card) => (
+              <span
+                key={card.id}
+                className="badge"
+                style={{ backgroundColor: "#f3f4f6", color: "#111827" }}
+              >
+                {card.phrase}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <div className="controls-row">
+          <button
+            onClick={() => void choosePracticeMode("chat_only")}
+            disabled={selectedCards.length === 0}
+            className={`button-primary ${selectedCards.length === 0 ? "button-disabled" : ""}`}
+          >
+            Chat only
+          </button>
+
+          <button
+            onClick={() => void choosePracticeMode("exercises_and_chat")}
+            disabled={selectedCards.length === 0}
+            className={`button-secondary ${selectedCards.length === 0 ? "button-disabled" : ""}`}
+          >
+            Exercises + chat
+          </button>
+
+          <button
+            onClick={() => setPracticeStage("setup")}
+            className="button-secondary"
+          >
+            Back
+          </button>
+        </div>
+      </div>
+    )}
+
+    {practiceStage === "meaning_match" && (
+      <div className="card" style={{ marginBottom: 24 }}>
+        <h2 className="section-title" style={{ marginBottom: 8 }}>
+          Meaning warm-up
+        </h2>
+
+        <div className="meta-text" style={{ marginBottom: 12 }}>
+          First version: review the target phrases and their meanings, then continue to chat.
+        </div>
+
+        <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+          {meaningPairs.map((pair) => (
+            <div key={pair.phraseId} className="mini-box">
               <div>
-                <label className="meta-text" style={{ display: "block", marginBottom: 6 }}>
-                  How many phrases?
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={practiceCount}
-                  onChange={(e) =>
-                    setPracticeCount(Math.max(1, Math.min(20, Number(e.target.value) || 1)))
-                  }
-                  className="text-input"
-                  style={{ width: 120 }}
-                />
+                <strong>{pair.phrase}</strong>
               </div>
+              <div style={{ marginTop: 4 }}>{pair.meaning}</div>
+            </div>
+          ))}
+        </div>
 
-              <div>
-                <label className="meta-text" style={{ display: "block", marginBottom: 6 }}>
-                  Prefer phrases from
-                </label>
-                <select
-                  value={practiceSource}
-                  onChange={(e) => setPracticeSource(e.target.value)}
-                  className="select-input"
-                  style={{ minWidth: 220 }}
-                >
-                  <option value="all">All phrases</option>
-                  {selectedIds.length > 0 && <option value="selected">Selected phrases</option>}
-                  {allTags.map((tag) => (
-                    <option key={tag} value={tag}>
-                      {tag}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        <div className="controls-row">
+          <button
+            onClick={() => void finishMeaningExercise()}
+            className="button-primary"
+          >
+            Continue to chat
+          </button>
 
-              <div>
-                <label className="meta-text" style={{ display: "block", marginBottom: 6 }}>
-                  Hover card English
-                </label>
+          <button
+            onClick={() => setPracticeStage("preview")}
+            className="button-secondary"
+          >
+            Back
+          </button>
+        </div>
+      </div>
+    )}
+
+    <div className="card card-quiet" style={{ marginBottom: 24 }}>
+      <div className="controls-row-spread">
+        <div>
+          <h2 className="subsection-title" style={{ marginBottom: 4 }}>
+            Quick lookup
+          </h2>
+          <div className="meta-text">
+            Optional help if you get stuck on a word.
+          </div>
+        </div>
+
+        <button onClick={toggleLookupOpen} className="button-secondary">
+          {lookupOpen ? "Hide lookup" : "Open lookup"}
+        </button>
+      </div>
+
+      {lookupOpen && (
+        <div className="mini-box" style={{ marginTop: 14 }}>
+          <div className="controls-row" style={{ alignItems: "flex-start" }}>
+            <input
+              ref={lookupInputRef}
+              value={lookupEnglish}
+              onChange={(e) => setLookupEnglish(e.target.value)}
+              onKeyDown={handleLookupKeyDown}
+              placeholder="Type English word or phrase..."
+              className="text-input"
+              style={{ width: "100%", maxWidth: 320 }}
+            />
+
+            <button
+              onClick={() => void lookupWord()}
+              disabled={lookupLoading || !lookupEnglish.trim()}
+              className={`button-primary ${
+                lookupLoading || !lookupEnglish.trim() ? "button-disabled" : ""
+              }`}
+            >
+              {lookupLoading ? "Looking up..." : "Look up"}
+            </button>
+          </div>
+
+          {lookupStatus && (
+            <div className="meta-text" style={{ marginTop: 10 }}>
+              {lookupStatus}
+            </div>
+          )}
+
+          {lookupResult && (
+            <div style={{ marginTop: 14 }}>
+              <p><b>Danish:</b> {lookupResult.corrected_phrase}</p>
+              <p><b>Explanation:</b> {lookupResult.short_explanation_da}</p>
+              <p><b>Example:</b> {lookupResult.example_da}</p>
+              <p><b>English:</b> {lookupResult.translation_en}</p>
+              <p><b>Example EN:</b> {lookupResult.example_en}</p>
+              <p><b>Extra info:</b> {lookupResult.extra_info || "—"}</p>
+
+              <div style={{ marginTop: 10 }}>
                 <button
-                  onClick={() => setShowEnglishInHover((prev) => !prev)}
-                  className="button-secondary"
+                  onClick={() => void saveLookupResultAsDraft()}
+                  disabled={savingLookupDraft}
+                  className={`button-secondary ${
+                    savingLookupDraft ? "button-disabled" : ""
+                  }`}
                 >
-                  {showEnglishInHover ? "Hide English" : "Show English"}
+                  {savingLookupDraft ? "Saving..." : "Create new draft"}
                 </button>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-
-      <div className="card card-quiet" style={{ marginBottom: 24 }}>
-        <div className="controls-row-spread">
-          <div>
-            <h2 className="subsection-title" style={{ marginBottom: 4 }}>
-              Quick lookup
-            </h2>
-            <div className="meta-text">
-              Optional help if you get stuck on a word.
-            </div>
-          </div>
-
-          <button onClick={toggleLookupOpen} className="button-secondary">
-            {lookupOpen ? "Hide lookup" : "Open lookup"}
-          </button>
-        </div>
-
-        {lookupOpen && (
-          <div className="mini-box" style={{ marginTop: 14 }}>
-            <div className="controls-row" style={{ alignItems: "flex-start" }}>
-              <input
-                ref={lookupInputRef}
-                value={lookupEnglish}
-                onChange={(e) => setLookupEnglish(e.target.value)}
-                onKeyDown={handleLookupKeyDown}
-                placeholder="Type English word or phrase..."
-                className="text-input"
-                style={{ width: "100%", maxWidth: 320 }}
-              />
-
-              <button
-                onClick={() => void lookupWord()}
-                disabled={lookupLoading || !lookupEnglish.trim()}
-                className={`button-primary ${
-                  lookupLoading || !lookupEnglish.trim() ? "button-disabled" : ""
-                }`}
-              >
-                {lookupLoading ? "Looking up..." : "Look up"}
-              </button>
-            </div>
-
-            {lookupStatus && (
-              <div className="meta-text" style={{ marginTop: 10 }}>
-                {lookupStatus}
-              </div>
-            )}
-
-            {lookupResult && (
-              <div style={{ marginTop: 14 }}>
-                <p><b>Danish:</b> {lookupResult.corrected_phrase}</p>
-                <p><b>Explanation:</b> {lookupResult.short_explanation_da}</p>
-                <p><b>Example:</b> {lookupResult.example_da}</p>
-                <p><b>English:</b> {lookupResult.translation_en}</p>
-                <p><b>Example EN:</b> {lookupResult.example_en}</p>
-                <p><b>Extra info:</b> {lookupResult.extra_info || "—"}</p>
-
-                <div style={{ marginTop: 10 }}>
-                  <button
-                    onClick={() => void saveLookupResultAsDraft()}
-                    disabled={savingLookupDraft}
-                    className={`button-secondary ${
-                      savingLookupDraft ? "button-disabled" : ""
-                    }`}
-                  >
-                    {savingLookupDraft ? "Saving..." : "Create new draft"}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="card" style={{ overflow: "visible", marginBottom: 24 }}>
-        <div className="controls-row-spread" style={{ marginBottom: 10 }}>
-          <div>
-            <h2 className="subsection-title" style={{ marginBottom: 4 }}>
-              Target phrases
-            </h2>
-            <div className="meta-text">
-              Keep these visible while chatting.
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button
-              onClick={() => setShowEnglishInHover((prev) => !prev)}
-              className="button-secondary"
-            >
-              {showEnglishInHover ? "Hide English" : "Show English"}
-            </button>
-
-            <button
-              onClick={() => setTargetsOpen((prev) => !prev)}
-              className="button-secondary"
-            >
-              {targetsOpen ? "Hide targets" : "Show targets"}
-            </button>
-          </div>
-        </div>
-
-        {targetsOpen && (
-          <>
-            {selectedCards.length === 0 ? (
-              <p>No saved phrases yet. Go back and add some first.</p>
-            ) : (
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 8,
-                  marginBottom: 12,
-                }}
-              >
-                {selectedCards.map((card) => (
-                  <div
-                    key={card.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      padding: "4px 8px",
-                      borderRadius: 999,
-                      background: usedPhraseSet.includes(card.phrase)
-                        ? "#dcfce7"
-                        : "#f3f4f6",
-                      fontSize: 13,
-                      cursor: "help",
-                      position: "relative",
-                    }}
-                    onClick={() => {
-                      const phrase = card.phrase;
-
-                      const textarea = inputRef.current;
-                      if (!textarea) return;
-
-                      const start = textarea.selectionStart;
-                      const end = textarea.selectionEnd;
-
-                      const before = input.slice(0, start);
-                      const after = input.slice(end);
-
-                      const needsSpaceBefore = before && !before.endsWith(" ");
-                      const needsSpaceAfter = after && !after.startsWith(" ");
-
-                      const newValue =
-                        before +
-                        (needsSpaceBefore ? " " : "") +
-                        phrase +
-                        (needsSpaceAfter ? " " : "") +
-                        after;
-
-                      setInput(newValue);
-
-                      setTimeout(() => {
-                        const pos = (before + (needsSpaceBefore ? " " : "") + phrase).length;
-                        textarea.focus();
-                        textarea.setSelectionRange(pos, pos);
-                      }, 0);
-                    }}
-                    onMouseEnter={() => setHoveredPhraseId(card.id)}
-                    onMouseLeave={() =>
-                      setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
-                    }
-                  >
-                    <span>{getPhraseStatusSymbol(card.phrase)}</span>
-
-                    <span style={{ fontWeight: 500 }}>
-                      {card.phrase}
-                    </span>
-
-                    {hoveredPhraseId === card.id && (
-                      <div
-                        style={{
-                          position: "absolute",
-                          top: "120%",
-                          left: 0,
-                          zIndex: 20,
-                          minWidth: 220,
-                          maxWidth: 300,
-                          background: "#fff",
-                          border: "1px solid #ddd",
-                          borderRadius: 10,
-                          padding: 10,
-                          boxShadow: "0 8px 20px rgba(0,0,0,0.12)",
-                        }}
-                      >
-                        <div style={{ fontWeight: 600 }}>
-                          {card.phrase}
-                        </div>
-
-                        {showEnglishInHover && (
-                          <div style={{ marginTop: 4, fontWeight: 500 }}>
-                            {card.translation_en}
-                          </div>
-                        )}
-
-                        <div style={{ marginTop: 4 }}>
-                          {card.short_explanation}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {selectedCards.length > 0 && (
-              <div className="badge badge-neutral">
-                Progress: {usedPhraseSet.length} / {selectedCards.length} phrases used correctly
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      <div className="chat-shell">
-        <div
-          className="controls-row-spread"
-          style={{ marginBottom: 12, gap: 12, flexWrap: "wrap", alignItems: "center" }}
-        >
-          <div>
-            <h2 className="section-title" style={{ marginBottom: 4 }}>
-              Chat
-            </h2>
-            <div className="meta-text">
-              {selectedCards.length > 0
-                ? `${selectedCards.length} target phrase${selectedCards.length === 1 ? "" : "s"} selected`
-                : "No target phrases selected yet"}
-            </div>
-            <div className="meta-text">
-              Source: {practiceSourceLabel} · Count: {practiceCount}
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            <button
-              onClick={() => setSettingsOpen((prev) => !prev)}
-              className="button-secondary"
-            >
-              {settingsOpen ? "Hide settings" : "Show settings"}
-            </button>
-
-            {!allPhrasesUsed && (
-              <button
-                onClick={() => void startPractice()}
-                disabled={loading || selectedCards.length === 0}
-                className={`button-primary ${
-                  loading || selectedCards.length === 0 ? "button-disabled" : ""
-                }`}
-              >
-                {loading
-                  ? "Starting..."
-                  : messages.length > 0
-                    ? "Restart practice"
-                    : "Start practice"}
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="chat-box" style={{ marginBottom: 16 }}>
-          {messages.length === 0 ? (
-            <p>No conversation yet.</p>
-          ) : (
-            messages.map((msg, i) => (
-              <div
-                key={i}
-                className={`chat-message ${
-                  msg.role === "assistant" ? "chat-message-assistant" : "chat-message-user"
-                }`}
-              >
-                <strong>{msg.role === "assistant" ? "Assistant" : "You"}:</strong>{" "}
-                {msg.role === "user" && i === latestUserMessageIndex
-                  ? highlightDetectedText(msg.content, lastPhraseFeedback)
-                  : msg.content}
-
-                {msg.role === "assistant" && (
-                  <div style={{ marginTop: 10 }}>
-                    <div
-                      className="utility-actions"
-                      style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
-                    >
-                      <button
-                        className="button-secondary button-small"
-                        onClick={() => openAddPhraseFromMessage(i)}
-                      >
-                        Create card draft
-                      </button>
-
-                      <button
-                        className="button-secondary button-small"
-                        onClick={() => void translateAssistantMessage(i, msg.content)}
-                        disabled={translatingMessageIndex === i}
-                      >
-                        {translatingMessageIndex === i
-                          ? "Translating..."
-                          : showTranslationByMessage[i]
-                            ? "Hide translation"
-                            : "Translate message"}
-                      </button>
-                    </div>
-
-                    {showTranslationByMessage[i] && messageTranslations[i] && (
-                      <div className="mini-box" style={{ marginTop: 10 }}>
-                        <div className="meta-text" style={{ marginBottom: 6 }}>
-                          English translation
-                        </div>
-                        <div>{messageTranslations[i]}</div>
-                      </div>
-                    )}
-
-                    {addFromMessageIndex === i && (
-                      <div className="mini-box">
-                        <div className="meta-text" style={{ marginBottom: 8 }}>
-                          Select text in the message above, or type the phrase here.
-                        </div>
-
-                        <div className="controls-row">
-                          <input
-                            value={candidatePhrase}
-                            onChange={(e) => setCandidatePhrase(e.target.value)}
-                            onKeyDown={handleAddPhraseKeyDown}
-                            placeholder="Phrase to save as draft..."
-                            className="text-input"
-                            style={{ width: "100%", maxWidth: 300 }}
-                          />
-
-                          <button
-                            onClick={() => void savePhraseFromMessage()}
-                            disabled={addingPhrase}
-                            className={`button-primary ${
-                              addingPhrase ? "button-disabled" : ""
-                            }`}
-                          >
-                            {addingPhrase ? "Creating..." : "Create draft"}
-                          </button>
-
-                          <button
-                            onClick={() => {
-                              setAddFromMessageIndex(null);
-                              setCandidatePhrase("");
-                              setAddPhraseStatus(null);
-                            }}
-                            className="button-secondary"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-
-                        {addPhraseStatus && (
-                          <div className="meta-text" style={{ marginTop: 8 }}>
-                            {addPhraseStatus}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))
           )}
-          <div ref={chatBottomRef} />
         </div>
+      )}
+    </div>
 
-        {!allPhrasesUsed ? (
-          <>
-            {retryState && (
-              <div
-                className="mini-box"
-                style={{
-                  background: "#fff7ed",
-                  border: "1px solid #fdba74",
-                  color: "#9a3412",
-                  marginBottom: 12,
-                }}
-              >
-                You are editing your last reply. If it becomes correct now, it will count
-                as almost for stats.
-              </div>
-            )}
-
-            <div className="mini-box composer-box">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleSendKeyDown}
-                placeholder="Write your reply in Danish..."
-                className="textarea-input"
-                rows={4}
-                style={{ width: "100%", fontSize: 16, marginBottom: 12 }}
-              />
-
-              <div className="composer-actions">
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 6,
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                  }}
-                >
-                  {messages.length > 0 && (
-                    <button
-                      onClick={endSession}
-                      disabled={loading}
-                      className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
-                    >
-                      End
-                    </button>
-                  )}
-
-                  {canRegenerate && (
-                    <button
-                      onClick={() => void regenerateAnswer()}
-                      disabled={loading}
-                      className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
-                    >
-                      Retry
-                    </button>
-                  )}
-
-                  {canRegenerate &&
-                    lastPhraseFeedback.some(
-                      (item) => item.status === "wrong" || item.status === "almost"
-                    ) && (
-                      <button
-                        onClick={startTryAgain}
-                        disabled={loading || reviewingSecondOpinion}
-                        className={`button-secondary button-small ${
-                          loading || reviewingSecondOpinion ? "button-disabled" : ""
-                        }`}
-                      >
-                        Fix
-                      </button>
-                    )}
-                </div>
-
-                <div className="send-button-wrap">
-                  <button
-                    onClick={() => void sendMessage()}
-                    disabled={
-                      loading ||
-                      reviewingSecondOpinion ||
-                      (messages.length === 0 && !retryState) ||
-                      !input.trim()
-                    }
-                    className={`button-primary send-button ${
-                      loading ||
-                      reviewingSecondOpinion ||
-                      (messages.length === 0 && !retryState) ||
-                      !input.trim()
-                        ? "button-disabled"
-                        : ""
-                    }`}
-                  >
-                    {loading ? "Sending..." : "Send"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div
-            className="success-box"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              flexWrap: "wrap",
-            }}
-          >
-            <strong>Nice — you used all target phrases correctly.</strong>
-            <button
-              onClick={() => void startNewWeakPhrasePractice()}
-              disabled={loading}
-              className={`button-primary ${loading ? "button-disabled" : ""}`}
-            >
-              {loading ? "Loading..." : "Start new session"}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {hasVisibleFeedback && (
-        <div className="info-box">
-          <div className="controls-row-spread" style={{ alignItems: "center" }}>
+    {practiceStage === "chat" && (
+      <>
+        <div className="card" style={{ overflow: "visible", marginBottom: 24 }}>
+          <div className="controls-row-spread" style={{ marginBottom: 10 }}>
             <div>
-              <strong>Phrase feedback</strong>
-              <div className="meta-text" style={{ marginTop: 4 }}>
-                Review how your last reply went.
+              <h2 className="subsection-title" style={{ marginBottom: 4 }}>
+                Target phrases
+              </h2>
+              <div className="meta-text">
+                Keep these visible while chatting.
               </div>
             </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
-                onClick={() => setFeedbackOpen((prev) => !prev)}
-                className="button-secondary button-small"
+                onClick={() => setShowEnglishInHover((prev) => !prev)}
+                className="button-secondary"
               >
-                {feedbackOpen ? "Hide feedback" : "Show feedback"}
+                {showEnglishInHover ? "Hide English" : "Show English"}
               </button>
 
               <button
-                onClick={() => void requestSecondOpinion()}
-                disabled={reviewingSecondOpinion || loading}
-                className={`button-secondary button-small ${
-                  reviewingSecondOpinion || loading ? "button-disabled" : ""
-                }`}
+                onClick={() => setTargetsOpen((prev) => !prev)}
+                className="button-secondary"
               >
-                {reviewingSecondOpinion ? "Reviewing..." : "Second opinion"}
+                {targetsOpen ? "Hide targets" : "Show targets"}
               </button>
             </div>
           </div>
 
-          {secondOpinionNote && (
-            <div className="meta-text" style={{ marginTop: 8 }}>
-              {secondOpinionNote}
+          {targetsOpen && (
+            <>
+              {selectedCards.length === 0 ? (
+                <p>No saved phrases yet. Go back and add some first.</p>
+              ) : (
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 8,
+                    marginBottom: 12,
+                  }}
+                >
+                  {selectedCards.map((card) => (
+                    <div
+                      key={card.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "4px 8px",
+                        borderRadius: 999,
+                        background: usedPhraseSet.includes(card.phrase)
+                          ? "#dcfce7"
+                          : "#f3f4f6",
+                        fontSize: 13,
+                        cursor: "help",
+                        position: "relative",
+                      }}
+                      onClick={() => {
+                        const phrase = card.phrase;
+
+                        const textarea = inputRef.current;
+                        if (!textarea) return;
+
+                        const start = textarea.selectionStart;
+                        const end = textarea.selectionEnd;
+
+                        const before = input.slice(0, start);
+                        const after = input.slice(end);
+
+                        const needsSpaceBefore = before && !before.endsWith(" ");
+                        const needsSpaceAfter = after && !after.startsWith(" ");
+
+                        const newValue =
+                          before +
+                          (needsSpaceBefore ? " " : "") +
+                          phrase +
+                          (needsSpaceAfter ? " " : "") +
+                          after;
+
+                        setInput(newValue);
+
+                        setTimeout(() => {
+                          const pos = (before + (needsSpaceBefore ? " " : "") + phrase).length;
+                          textarea.focus();
+                          textarea.setSelectionRange(pos, pos);
+                        }, 0);
+                      }}
+                      onMouseEnter={() => setHoveredPhraseId(card.id)}
+                      onMouseLeave={() =>
+                        setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
+                      }
+                    >
+                      <span>{getPhraseStatusSymbol(card.phrase)}</span>
+
+                      <span style={{ fontWeight: 500 }}>
+                        {card.phrase}
+                      </span>
+
+                      {hoveredPhraseId === card.id && (
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: "120%",
+                            left: 0,
+                            zIndex: 20,
+                            minWidth: 220,
+                            maxWidth: 300,
+                            background: "#fff",
+                            border: "1px solid #ddd",
+                            borderRadius: 10,
+                            padding: 10,
+                            boxShadow: "0 8px 20px rgba(0,0,0,0.12)",
+                          }}
+                        >
+                          <div style={{ fontWeight: 600 }}>
+                            {card.phrase}
+                          </div>
+
+                          {showEnglishInHover && (
+                            <div style={{ marginTop: 4, fontWeight: 500 }}>
+                              {card.translation_en}
+                            </div>
+                          )}
+
+                          <div style={{ marginTop: 4 }}>
+                            {card.short_explanation}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {selectedCards.length > 0 && (
+                <div className="badge badge-neutral">
+                  Progress: {usedPhraseSet.length} / {selectedCards.length} phrases used correctly
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="chat-shell">
+          <div
+            className="controls-row-spread"
+            style={{ marginBottom: 12, gap: 12, flexWrap: "wrap", alignItems: "center" }}
+          >
+            <div>
+              <h2 className="section-title" style={{ marginBottom: 4 }}>
+                Chat
+              </h2>
+              <div className="meta-text">
+                {selectedCards.length > 0
+                  ? `${selectedCards.length} target phrase${selectedCards.length === 1 ? "" : "s"} selected`
+                  : "No target phrases selected yet"}
+              </div>
+              <div className="meta-text">
+                Source: {practiceSourceLabel} · Count: {practiceCount}
+                {practiceMode
+                  ? ` · Mode: ${
+                      practiceMode === "chat_only" ? "Chat only" : "Exercises + chat"
+                    }`
+                  : ""}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button
+                onClick={() => setSettingsOpen((prev) => !prev)}
+                className="button-secondary"
+              >
+                {settingsOpen ? "Hide settings" : "Show settings"}
+              </button>
+
+              {!allPhrasesUsed && (
+                <button
+                  onClick={() => void startPractice()}
+                  disabled={loading || selectedCards.length === 0}
+                  className={`button-primary ${
+                    loading || selectedCards.length === 0 ? "button-disabled" : ""
+                  }`}
+                >
+                  {loading
+                    ? "Starting..."
+                    : messages.length > 0
+                      ? "Restart practice"
+                      : "Start practice"}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="chat-box" style={{ marginBottom: 16 }}>
+            {messages.length === 0 ? (
+              <p>No conversation yet.</p>
+            ) : (
+              messages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`chat-message ${
+                    msg.role === "assistant" ? "chat-message-assistant" : "chat-message-user"
+                  }`}
+                >
+                  <strong>{msg.role === "assistant" ? "Assistant" : "You"}:</strong>{" "}
+                  {msg.role === "user" && i === latestUserMessageIndex
+                    ? highlightDetectedText(msg.content, lastPhraseFeedback)
+                    : msg.content}
+
+                  {msg.role === "assistant" && (
+                    <div style={{ marginTop: 10 }}>
+                      <div
+                        className="utility-actions"
+                        style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
+                      >
+                        <button
+                          className="button-secondary button-small"
+                          onClick={() => openAddPhraseFromMessage(i)}
+                        >
+                          Create card draft
+                        </button>
+
+                        <button
+                          className="button-secondary button-small"
+                          onClick={() => void translateAssistantMessage(i, msg.content)}
+                          disabled={translatingMessageIndex === i}
+                        >
+                          {translatingMessageIndex === i
+                            ? "Translating..."
+                            : showTranslationByMessage[i]
+                              ? "Hide translation"
+                              : "Translate message"}
+                        </button>
+                      </div>
+
+                      {showTranslationByMessage[i] && messageTranslations[i] && (
+                        <div className="mini-box" style={{ marginTop: 10 }}>
+                          <div className="meta-text" style={{ marginBottom: 6 }}>
+                            English translation
+                          </div>
+                          <div>{messageTranslations[i]}</div>
+                        </div>
+                      )}
+
+                      {addFromMessageIndex === i && (
+                        <div className="mini-box">
+                          <div className="meta-text" style={{ marginBottom: 8 }}>
+                            Select text in the message above, or type the phrase here.
+                          </div>
+
+                          <div className="controls-row">
+                            <input
+                              value={candidatePhrase}
+                              onChange={(e) => setCandidatePhrase(e.target.value)}
+                              onKeyDown={handleAddPhraseKeyDown}
+                              placeholder="Phrase to save as draft..."
+                              className="text-input"
+                              style={{ width: "100%", maxWidth: 300 }}
+                            />
+
+                            <button
+                              onClick={() => void savePhraseFromMessage()}
+                              disabled={addingPhrase}
+                              className={`button-primary ${
+                                addingPhrase ? "button-disabled" : ""
+                              }`}
+                            >
+                              {addingPhrase ? "Creating..." : "Create draft"}
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setAddFromMessageIndex(null);
+                                setCandidatePhrase("");
+                                setAddPhraseStatus(null);
+                              }}
+                              className="button-secondary"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+
+                          {addPhraseStatus && (
+                            <div className="meta-text" style={{ marginTop: 8 }}>
+                              {addPhraseStatus}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+            <div ref={chatBottomRef} />
+          </div>
+
+          {!allPhrasesUsed ? (
+            <>
+              {retryState && (
+                <div
+                  className="mini-box"
+                  style={{
+                    background: "#fff7ed",
+                    border: "1px solid #fdba74",
+                    color: "#9a3412",
+                    marginBottom: 12,
+                  }}
+                >
+                  You are editing your last reply. If it becomes correct now, it will count
+                  as almost for stats.
+                </div>
+              )}
+
+              <div className="mini-box composer-box">
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleSendKeyDown}
+                  placeholder="Write your reply in Danish..."
+                  className="textarea-input"
+                  rows={4}
+                  style={{ width: "100%", fontSize: 16, marginBottom: 12 }}
+                />
+
+                <div className="composer-actions">
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                    }}
+                  >
+                    {messages.length > 0 && (
+                      <button
+                        onClick={endSession}
+                        disabled={loading}
+                        className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
+                      >
+                        End
+                      </button>
+                    )}
+
+                    {canRegenerate && (
+                      <button
+                        onClick={() => void regenerateAnswer()}
+                        disabled={loading}
+                        className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
+                      >
+                        Retry
+                      </button>
+                    )}
+
+                    {canRegenerate &&
+                      lastPhraseFeedback.some(
+                        (item) => item.status === "wrong" || item.status === "almost"
+                      ) && (
+                        <button
+                          onClick={startTryAgain}
+                          disabled={loading || reviewingSecondOpinion}
+                          className={`button-secondary button-small ${
+                            loading || reviewingSecondOpinion ? "button-disabled" : ""
+                          }`}
+                        >
+                          Fix
+                        </button>
+                      )}
+                  </div>
+
+                  <div className="send-button-wrap">
+                    <button
+                      onClick={() => void sendMessage()}
+                      disabled={
+                        loading ||
+                        reviewingSecondOpinion ||
+                        (messages.length === 0 && !retryState) ||
+                        !input.trim()
+                      }
+                      className={`button-primary send-button ${
+                        loading ||
+                        reviewingSecondOpinion ||
+                        (messages.length === 0 && !retryState) ||
+                        !input.trim()
+                          ? "button-disabled"
+                          : ""
+                      }`}
+                    >
+                      {loading ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div
+              className="success-box"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <strong>Nice — you used all target phrases correctly.</strong>
+              <button
+                onClick={() => void startNewWeakPhrasePractice()}
+                disabled={loading}
+                className={`button-primary ${loading ? "button-disabled" : ""}`}
+              >
+                {loading ? "Loading..." : "Start new session"}
+              </button>
             </div>
           )}
-
-          {feedbackOpen && (
-            <ul style={{ marginTop: 10 }}>
-              {lastPhraseFeedback
-                .filter((item) => item.status !== "unused")
-                .map((item) => (
-                  <li key={item.phrase} style={{ marginBottom: 12 }}>
-                    {item.status === "correct" && "✓"}
-                    {item.status === "almost" && "~"}
-                    {item.status === "wrong" && "✗"}{" "}
-                    <strong>{item.phrase}</strong>
-                    {item.comment ? ` — ${item.comment}` : ""}
-
-                    {item.suggestion && (
-                      <div style={{ marginTop: 4 }}>
-                        <em>Suggestion:</em> {item.suggestion}
-                      </div>
-                    )}
-
-                    {item.sentenceIssue !== "none" && item.sentenceComment && (
-                      <div style={{ marginTop: 4 }}>
-                        <em>Grammar elsewhere:</em> {item.sentenceComment}
-                      </div>
-                    )}
-
-                    {item.correctedSentence && (
-                      <div style={{ marginTop: 4 }}>
-                        <div>
-                          <em>Corrected sentence:</em> {item.correctedSentence}
-                        </div>
-
-                        <div style={{ marginTop: 6 }}>
-                          <button
-                            className="button-secondary button-small"
-                            onClick={() => {
-                              const selectedText =
-                                window.getSelection?.()?.toString().trim() || "";
-                              setAddFromFeedbackPhrase(item.phrase);
-                              setCandidateFeedbackPhrase(
-                                selectedText || item.correctedSentence
-                              );
-                              setAddPhraseStatus(null);
-                            }}
-                          >
-                            Create draft from correction
-                          </button>
-                        </div>
-
-                        {addFromFeedbackPhrase === item.phrase && (
-                          <div className="mini-box" style={{ marginTop: 8 }}>
-                            <div className="meta-text" style={{ marginBottom: 8 }}>
-                              Select text from the corrected sentence above, or edit it here.
-                            </div>
-
-                            <div className="controls-row">
-                              <input
-                                value={candidateFeedbackPhrase}
-                                onChange={(e) =>
-                                  setCandidateFeedbackPhrase(e.target.value)
-                                }
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    if (!addingPhrase) {
-                                      void savePhraseFromFeedback();
-                                    }
-                                  }
-                                }}
-                                placeholder="Phrase to save as draft..."
-                                className="text-input"
-                                style={{ width: "100%", maxWidth: 300 }}
-                              />
-
-                              <button
-                                onClick={() => void savePhraseFromFeedback()}
-                                disabled={addingPhrase}
-                                className={`button-primary ${
-                                  addingPhrase ? "button-disabled" : ""
-                                }`}
-                              >
-                                {addingPhrase ? "Creating..." : "Create draft"}
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  setAddFromFeedbackPhrase(null);
-                                  setCandidateFeedbackPhrase("");
-                                  setAddPhraseStatus(null);
-                                }}
-                                className="button-secondary"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-
-                            {addPhraseStatus && (
-                              <div className="meta-text" style={{ marginTop: 8 }}>
-                                {addPhraseStatus}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </li>
-                ))}
-            </ul>
-          )}
         </div>
-      )}
+      </>
+    )}
 
-      {draftSavedMessage && (
-        <div
+    {practiceStage === "chat" && hasVisibleFeedback && (
+      <div className="info-box">
+        <div className="controls-row-spread" style={{ alignItems: "center" }}>
+          <div>
+            <strong>Phrase feedback</strong>
+            <div className="meta-text" style={{ marginTop: 4 }}>
+              Review how your last reply went.
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={() => setFeedbackOpen((prev) => !prev)}
+              className="button-secondary button-small"
+            >
+              {feedbackOpen ? "Hide feedback" : "Show feedback"}
+            </button>
+
+            <button
+              onClick={() => void requestSecondOpinion()}
+              disabled={reviewingSecondOpinion || loading}
+              className={`button-secondary button-small ${
+                reviewingSecondOpinion || loading ? "button-disabled" : ""
+              }`}
+            >
+              {reviewingSecondOpinion ? "Reviewing..." : "Second opinion"}
+            </button>
+          </div>
+        </div>
+
+        {secondOpinionNote && (
+          <div className="meta-text" style={{ marginTop: 8 }}>
+            {secondOpinionNote}
+          </div>
+        )}
+
+        {feedbackOpen && (
+          <ul style={{ marginTop: 10 }}>
+            {lastPhraseFeedback
+              .filter((item) => item.status !== "unused")
+              .map((item) => (
+                <li key={item.phrase} style={{ marginBottom: 12 }}>
+                  {item.status === "correct" && "✓"}
+                  {item.status === "almost" && "~"}
+                  {item.status === "wrong" && "✗"}{" "}
+                  <strong>{item.phrase}</strong>
+                  {item.comment ? ` — ${item.comment}` : ""}
+
+                  {item.suggestion && (
+                    <div style={{ marginTop: 4 }}>
+                      <em>Suggestion:</em> {item.suggestion}
+                    </div>
+                  )}
+
+                  {item.sentenceIssue !== "none" && item.sentenceComment && (
+                    <div style={{ marginTop: 4 }}>
+                      <em>Grammar elsewhere:</em> {item.sentenceComment}
+                    </div>
+                  )}
+
+                  {item.correctedSentence && (
+                    <div style={{ marginTop: 4 }}>
+                      <div>
+                        <em>Corrected sentence:</em> {item.correctedSentence}
+                      </div>
+
+                      <div style={{ marginTop: 6 }}>
+                        <button
+                          className="button-secondary button-small"
+                          onClick={() => {
+                            const selectedText =
+                              window.getSelection?.()?.toString().trim() || "";
+                            setAddFromFeedbackPhrase(item.phrase);
+                            setCandidateFeedbackPhrase(
+                              selectedText || item.correctedSentence
+                            );
+                            setAddPhraseStatus(null);
+                          }}
+                        >
+                          Create draft from correction
+                        </button>
+                      </div>
+
+                      {addFromFeedbackPhrase === item.phrase && (
+                        <div className="mini-box" style={{ marginTop: 8 }}>
+                          <div className="meta-text" style={{ marginBottom: 8 }}>
+                            Select text from the corrected sentence above, or edit it here.
+                          </div>
+
+                          <div className="controls-row">
+                            <input
+                              value={candidateFeedbackPhrase}
+                              onChange={(e) =>
+                                setCandidateFeedbackPhrase(e.target.value)
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  if (!addingPhrase) {
+                                    void savePhraseFromFeedback();
+                                  }
+                                }
+                              }}
+                              placeholder="Phrase to save as draft..."
+                              className="text-input"
+                              style={{ width: "100%", maxWidth: 300 }}
+                            />
+
+                            <button
+                              onClick={() => void savePhraseFromFeedback()}
+                              disabled={addingPhrase}
+                              className={`button-primary ${
+                                addingPhrase ? "button-disabled" : ""
+                              }`}
+                            >
+                              {addingPhrase ? "Creating..." : "Create draft"}
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setAddFromFeedbackPhrase(null);
+                                setCandidateFeedbackPhrase("");
+                                setAddPhraseStatus(null);
+                              }}
+                              className="button-secondary"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+
+                          {addPhraseStatus && (
+                            <div className="meta-text" style={{ marginTop: 8 }}>
+                              {addPhraseStatus}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </li>
+              ))}
+          </ul>
+        )}
+      </div>
+    )}
+
+    {draftSavedMessage && (
+      <div
+        style={{
+          position: "fixed",
+          left: "50%",
+          bottom: 22,
+          transform: "translateX(-50%)",
+          zIndex: 100,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          background: "linear-gradient(135deg, #15803d 0%, #16a34a 100%)",
+          color: "#ffffff",
+          padding: "12px 16px",
+          borderRadius: "14px",
+          boxShadow: "0 14px 34px rgba(0,0,0,0.22)",
+          border: "1px solid rgba(255,255,255,0.15)",
+          fontWeight: 600,
+          fontSize: 14,
+          letterSpacing: "0.01em",
+          maxWidth: "min(92vw, 520px)",
+          transition: "opacity 180ms ease, transform 180ms ease",
+        }}
+      >
+        <span
           style={{
-            position: "fixed",
-            left: "50%",
-            bottom: 22,
-            transform: "translateX(-50%)",
-            zIndex: 100,
-            display: "flex",
+            width: 22,
+            height: 22,
+            borderRadius: "999px",
+            background: "rgba(255,255,255,0.18)",
+            display: "inline-flex",
             alignItems: "center",
-            gap: 10,
-            background: "linear-gradient(135deg, #15803d 0%, #16a34a 100%)",
-            color: "#ffffff",
-            padding: "12px 16px",
-            borderRadius: "14px",
-            boxShadow: "0 14px 34px rgba(0,0,0,0.22)",
-            border: "1px solid rgba(255,255,255,0.15)",
-            fontWeight: 600,
-            fontSize: 14,
-            letterSpacing: "0.01em",
-            maxWidth: "min(92vw, 520px)",
-            transition: "opacity 180ms ease, transform 180ms ease",
+            justifyContent: "center",
+            fontSize: 13,
+            flexShrink: 0,
           }}
         >
-          <span
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: "999px",
-              background: "rgba(255,255,255,0.18)",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 13,
-              flexShrink: 0,
-            }}
-          >
-            ✓
-          </span>
+          ✓
+        </span>
 
-          <span>{draftSavedMessage}</span>
-        </div>
-      )}
-    </main>
-  );
+        <span>{draftSavedMessage}</span>
+      </div>
+    )}
+  </main>
+);
 }
