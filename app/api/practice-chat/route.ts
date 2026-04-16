@@ -24,6 +24,17 @@ type PhraseWithVariants = {
   matchingVariants: string[];
 };
 
+type PhraseFeedbackItem = {
+  phrase: string;
+  status: "correct" | "almost" | "wrong" | "unused";
+  comment: string;
+  suggestion: string;
+  detectedText: string;
+  sentenceIssue: "none" | "minor" | "major";
+  sentenceComment: string;
+  correctedSentence: string;
+};
+
 const normalizeText = (value: string) =>
   value
     .toLowerCase()
@@ -102,6 +113,224 @@ const assistantBreaksRole = (reply: string) => {
     normalized.includes(pattern)
   );
 };
+
+const buildSinglePhrasePrompt = (
+  phrase: string,
+  acceptedVariants: string[]
+) => {
+  const targetPhraseBlock = [
+    `Base phrase: ${phrase}`,
+    acceptedVariants.length > 0
+      ? `Accepted stored variants:\n${acceptedVariants
+          .map((v) => `- ${v}`)
+          .join("\n")}`
+      : `Accepted stored variants:\n(none)`,
+  ].join("\n");
+
+  return `You evaluate whether a learner used ONE target Danish phrase correctly in their latest message.
+
+TARGET PHRASE TO EVALUATE:
+${targetPhraseBlock}
+
+You must inspect:
+1. the learner message
+2. the previous assistant message, if provided, for context
+
+Do NOT consider earlier conversation history beyond the previous assistant message.
+
+IMPORTANT:
+You are evaluating ONLY this one target phrase.
+Your task is NOT to evaluate all target phrases at once.
+Be exhaustive about THIS phrase only.
+
+--------------------------------
+CORE PRINCIPLE
+--------------------------------
+
+This target phrase counts as used if the learner used:
+- the base phrase itself
+- a natural inflected grammatical form of the base phrase
+- an accepted stored variant listed above
+- a natural inflected grammatical form of an accepted stored variant
+
+If the learner uses an accepted stored variant correctly, treat it as usage of the target phrase.
+
+Evaluate the TARGET PHRASE separately from the rest of the sentence.
+
+A target phrase can still be "correct" if it is used correctly and the sentence is meaningful, even if there is a small grammar issue elsewhere.
+In such a case:
+- keep status = "correct"
+- use sentenceIssue = "minor"
+- explain the outside issue in sentenceComment
+
+--------------------------------
+1. STATUS DEFINITIONS
+--------------------------------
+
+Use "correct" when ALL are true:
+- the learner used the target phrase or a natural inflected/grammatical variant of it, including accepted stored variants
+- the target phrase itself is grammatically correct in the learner's sentence
+- the target phrase is used with the correct meaning and function
+- the full learner sentence is semantically meaningful and plausible in Danish
+- if the phrase depends on discourse context, that context is satisfied
+
+Use "almost" when:
+- the learner clearly attempted the target phrase
+- the intended meaning is understandable
+- there is a small mistake INSIDE the target phrase
+- but the phrase is still close to correct
+
+Use "wrong" when:
+- the learner clearly attempted the target phrase
+- but the target phrase itself is incorrect
+OR
+- the phrase meaning or function is wrong in context
+OR
+- the phrase is used with impossible or unnatural arguments
+OR
+- the sentence is not meaningful enough to accept the phrase
+OR
+- a required contextual relation is missing
+
+Use "unused" when:
+- the learner did not actually use the phrase, the accepted stored variants, or natural inflected forms of them
+
+--------------------------------
+2. INFLECTION
+--------------------------------
+
+Target phrases do NOT need to appear in their base form.
+
+Accept natural Danish inflections without criticism.
+
+Examples:
+- "at spilde" → "spilder", "spildte", "spildt"
+- "sikkerhedsmæssig" → "sikkerhedsmæssige"
+- "betydelig" → "betydeligt"
+
+Rules:
+- if the learner uses a correct inflected form, mark it "correct"
+- do NOT criticize singular vs plural if the learner form is correct
+- do NOT criticize tense differences if the learner form is correct
+- do NOT mention that the base form is different
+- only comment on form if the learner's actual form is wrong
+
+CRITICAL:
+If the learner uses a correct conjugated verb form, you MUST treat it as correct usage of the phrase.
+You MUST NOT require the infinitive form "at + verb".
+
+The same rule applies to accepted stored variants.
+
+--------------------------------
+3. RULES ABOUT "AT"
+--------------------------------
+
+Do NOT require the infinitive marker "at" unless the learner's grammar truly requires it.
+
+Important:
+- if the learner uses a finite verb form, a past participle, or another correct inflected form, do NOT say that "at" is missing
+- do NOT complain about missing "at" just because the stored target phrase begins with "at"
+
+After Danish modal verbs such as "skal", "kan", "vil", "må", "bør", and "kunne", do NOT require "at" before the infinitive.
+
+Only require "at" where Danish grammar truly requires it.
+
+--------------------------------
+4. RELATED IDEA ≠ SAME PHRASE
+--------------------------------
+
+If the learner expresses a similar meaning using a DIFFERENT construction,
+do not treat that as a wrong attempt at the target phrase.
+
+This also applies if the learner uses a related expression that is NOT among the accepted stored variants.
+
+If the learner used a semantically related word or expression,
+but not the target phrase itself, not an accepted stored variant, and not a natural inflected form of either,
+mark it as "unused", not "wrong".
+
+Suggestion must be empty for such cases.
+
+--------------------------------
+5. CONTEXT-DEPENDENT WORDS
+--------------------------------
+
+Some Danish words require a logical relation to the previous assistant message.
+Examples: derimod, derfor, ellers, alligevel, nemlig, dog.
+
+For such words:
+- the learner sentence must create the required logical relation to the previous assistant message
+- if that relation does not exist, usage is "wrong"
+
+--------------------------------
+6. SENTENCE-LEVEL ISSUES
+--------------------------------
+
+Use sentenceIssue only for grammar problems OUTSIDE the target phrase.
+
+- sentenceIssue = "none" when there is no notable grammar problem outside the target phrase
+- sentenceIssue = "minor" when the target phrase is correct, but there is some small grammar issue elsewhere
+- sentenceIssue = "major" when the whole sentence is broadly broken, not understandable, or the non-target errors are severe enough that the sentence fails overall
+
+Do NOT use sentenceComment to criticize the target phrase itself.
+
+Missing commas should normally NOT count as a grammar issue.
+
+If sentenceIssue is "minor" or "major", provide a short natural corrected version of the learner's full sentence in correctedSentence.
+If sentenceIssue is "none", correctedSentence must be empty.
+
+--------------------------------
+7. SUGGESTIONS
+--------------------------------
+
+- if status is "correct", suggestion should usually be empty
+- if status is "unused", suggestion must be empty
+- if status is "almost" or "wrong", provide a short corrected suggestion only if genuinely helpful
+
+NEVER give a suggestion that is identical to the learner's wording.
+Do NOT claim that an accepted stored variant is wrong merely because it differs from the base phrase.
+
+--------------------------------
+8. DETECTED TEXT GROUNDING
+--------------------------------
+
+You MUST base your judgment on the exact detectedText.
+
+Before deciding "unused", actively search the learner message for:
+- the base phrase
+- accepted stored variants
+- natural inflected forms of both
+
+If the learner used this target phrase several times, choose the clearest best matching occurrence as detectedText.
+
+If detectedText is already correct, status must not be "almost" or "wrong" for that reason.
+
+--------------------------------
+9. OUTPUT
+--------------------------------
+
+Return ONLY valid JSON with exactly this structure:
+{
+  "phrase": "target phrase",
+  "status": "correct | almost | wrong | unused",
+  "comment": "short comment",
+  "suggestion": "short corrected version or empty string",
+  "detectedText": "exact matching text from learner message or empty string",
+  "sentenceIssue": "none | minor | major",
+  "sentenceComment": "short explanation of grammar issue outside the target phrase, or empty string",
+  "correctedSentence": "full corrected learner sentence or empty string"
+}`;
+};
+
+const defaultPhraseFeedback = (phrase: string): PhraseFeedbackItem => ({
+  phrase,
+  status: "unused",
+  comment: "",
+  suggestion: "",
+  detectedText: "",
+  sentenceIssue: "none",
+  sentenceComment: "",
+  correctedSentence: "",
+});
 
 export async function POST(req: Request) {
   try {
@@ -184,18 +413,6 @@ export async function POST(req: Request) {
         }));
       }
     }
-
-    const phraseListWithVariantsForPrompt = phrasesWithVariants
-      .map((item) => {
-        const variantsText =
-          item.matchingVariants.length > 0
-            ? `\n  Accepted stored variants:\n${item.matchingVariants
-                .map((v) => `  - ${v}`)
-                .join("\n")}`
-            : "";
-        return `- Base phrase: ${item.phrase}${variantsText}`;
-      })
-      .join("\n");
 
     const conversationMessages: Array<{
       role: "system" | "user" | "assistant";
@@ -442,25 +659,9 @@ Return ONLY the Danish reply.`,
       }
     }
 
-    let phraseFeedback: Array<{
-      phrase: string;
-      status: "correct" | "almost" | "wrong" | "unused";
-      comment: string;
-      suggestion: string;
-      detectedText: string;
-      sentenceIssue: "none" | "minor" | "major";
-      sentenceComment: string;
-      correctedSentence: string;
-    }> = phraseList.map((phrase) => ({
-      phrase,
-      status: "unused",
-      comment: "",
-      suggestion: "",
-      detectedText: "",
-      sentenceIssue: "none",
-      sentenceComment: "",
-      correctedSentence: "",
-    }));
+    let phraseFeedback: PhraseFeedbackItem[] = phraseList.map((phrase) =>
+      defaultPhraseFeedback(phrase)
+    );
 
     if (userMessage && userMessage.trim()) {
       const previousAssistantMessage =
@@ -474,419 +675,114 @@ Return ONLY the Danish reply.`,
               typeof msg.content === "string"
           )?.content ?? "";
 
-      const detectionResponse = await client.responses.create({
-        model: "gpt-4.1-mini",
-        input: [
-          {
-            role: "system",
-            content: `You evaluate whether a learner used target Danish phrases correctly in their latest message.
-
-Target phrases and accepted stored variants:
-${phraseListWithVariantsForPrompt}
-
-You must inspect:
-1. the learner message
-2. the previous assistant message, if provided, for context
-
-Do NOT consider earlier conversation history beyond the previous assistant message.
-
---------------------------------
-CORE PRINCIPLE
---------------------------------
-
-Evaluate the TARGET PHRASE separately from the rest of the sentence.
-
-A target phrase counts as used if the learner used:
-- the base phrase itself
-- a natural inflected grammatical form of the base phrase
-- an accepted stored variant listed under that phrase
-- a natural inflected grammatical form of an accepted stored variant
-
-If the learner uses an accepted stored variant correctly, treat it as usage of the target phrase.
-
-- A target phrase can still be "correct" if it is used correctly and the sentence is meaningful, even if there is a small grammar issue elsewhere.
-- In such a case:
-  - keep status = "correct"
-  - use sentenceIssue = "minor"
-  - explain the outside issue in sentenceComment
-
---------------------------------
-1. STATUS DEFINITIONS
---------------------------------
-
-Use "correct" when ALL are true:
-- the learner used the target phrase or a natural inflected/grammatical variant of it, including accepted stored variants
-- the target phrase itself is grammatically correct in the learner's sentence
-- the target phrase is used with the correct meaning and function
-- the full learner sentence is semantically meaningful and plausible in Danish
-- if the phrase depends on discourse context, that context is satisfied
-
-Use "almost" when:
-- the learner clearly attempted the target phrase
-- the intended meaning is understandable
-- there is a small mistake INSIDE the target phrase
-- but the phrase is still close to correct
-
-Use "wrong" when:
-- the learner clearly attempted the target phrase
-- but the target phrase itself is incorrect
-OR
-- the phrase meaning or function is wrong in context
-OR
-- the phrase is used with impossible or unnatural arguments
-OR
-- the sentence is not meaningful enough to accept the phrase
-OR
-- a required contextual relation is missing
-
-Use "unused" when:
-- the learner did not actually use the phrase, the accepted stored variants, or natural inflected forms of them
-
---------------------------------
-2. INFLECTION (VERY IMPORTANT)
---------------------------------
-
-Target phrases do NOT need to appear in their base form.
-
-Accept natural Danish inflections without criticism.
-
-Examples:
-- "at spilde" → "spilder", "spildte", "spildt"
-- "sikkerhedsmæssig" → "sikkerhedsmæssige"
-- "betydelig" → "betydeligt"
-
-Rules:
-- if the learner uses a correct inflected form, mark it "correct"
-- do NOT criticize singular vs plural if the learner form is correct
-- do NOT criticize tense differences if the learner form is correct
-- do NOT mention that the base form is different
-- only comment on form if the learner's actual form is wrong
-
-CRITICAL:
-If the learner uses a correct conjugated verb form (e.g. "spilder", "spildte", "spildt"),
-you MUST treat it as correct usage of the phrase.
-You MUST NOT require the infinitive form "at + verb".
-
-The same rule applies to accepted stored variants.
-
---------------------------------
-3. RULES ABOUT "AT"
---------------------------------
-
-Do NOT require the infinitive marker "at" unless the learner's grammar truly requires it.
-
-Important:
-- if the learner uses a finite verb form, a past participle, or another correct inflected form, do NOT say that "at" is missing
-- do NOT complain about missing "at" just because the stored target phrase begins with "at"
-
-Examples:
-- "jeg har spildt tid" is correct and does not need "at"
-- "jeg skal håndtere det" is correct and does not need "at"
-- "jeg kan forstå det" is correct and does not need "at"
-
-Also:
-After Danish modal verbs such as "skal", "kan", "vil", "må", "bør", and "kunne", do NOT require "at" before the infinitive.
-
-Examples:
-- "jeg skal håndtere det" is correct
-- "jeg kan forstå det" is correct
-- "jeg vil lære det" is correct
-
-Only require "at" where Danish grammar truly requires it.
-
---------------------------------
-4. COMMON EXPRESSIONS
---------------------------------
-
-Accept natural Danish expressions.
-
-For common verb+noun expressions, do NOT require an article, possessive, or determiner unless truly necessary.
-
-Examples:
-- "spilde tid" is correct
-- "jeg har spildt tid" is correct
-- "sænke energiforbrug" is acceptable
-- "sænke energiforbruget" is also acceptable
-
-Do not invent missing determiners or pronouns when the learner wording is already natural Danish.
-
---------------------------------
-4B. RELATED IDEA ≠ SAME PHRASE
---------------------------------
-
-If the learner expresses a similar meaning using a DIFFERENT construction,
-do not treat that as a wrong attempt at the target phrase.
-
-This also applies if the learner uses a related expression that is NOT among the accepted stored variants.
-
-Examples:
-- target phrase: "at spilde"
-  learner writes: "spild af tid"
-  -> this is NOT a wrong use of "at spilde"
-  -> mark it as "unused"
-
-- target phrase: "at tage fat på"
-  learner writes a nearby noun-based expression instead
-  -> if the stored phrase itself or an accepted stored variant was not actually used, mark "unused"
-
-Rule:
-- if the learner used a semantically related word or expression,
-  but not the target phrase itself, not an accepted stored variant, and not a natural inflected form of either,
-  mark it as "unused", not "wrong"
-
-Tone:
-- do not scold
-- do not suggest the target phrase as if the learner made an error
-- optional neutral comment:
-  "A related expression was used, but not this phrase."
-
-Suggestion must be empty for such cases.
-
---------------------------------
-5. CONTEXT-DEPENDENT WORDS
---------------------------------
-
-Some Danish words require a logical relation to the previous assistant message.
-Examples: derimod, derfor, ellers, alligevel, nemlig, dog.
-
-For such words:
-- the learner sentence must create the required logical relation to the previous assistant message
-- if that relation does not exist, usage is "wrong"
-
-Example:
-- "Derimod drikker jeg en kaffe"
-  → wrong, if no contrast with previous context exists
-
---------------------------------
-6. SENTENCE-LEVEL ISSUES
---------------------------------
-
-Use sentenceIssue only for grammar problems OUTSIDE the target phrase.
-
-- sentenceIssue = "none" when there is no notable grammar problem outside the target phrase
-- sentenceIssue = "minor" when the target phrase is correct, but there is some small grammar issue elsewhere
-- sentenceIssue = "major" when the whole sentence is broadly broken, not understandable, or the non-target errors are severe enough that the sentence fails overall
-
-Do NOT use sentenceComment to criticize the target phrase itself.
-
-Very important:
-- Missing commas should normally NOT count as a grammar issue.
-- Minor punctuation issues should usually be ignored.
-- Do NOT punish the learner for forgetting commas.
-- Only mention punctuation if it seriously changes meaning or makes the sentence hard to understand.
-
-If sentenceIssue is "minor" or "major", provide a short natural corrected version of the learner's full sentence in correctedSentence.
-If sentenceIssue is "none", correctedSentence must be empty.
-
-Rules for correctedSentence:
-- keep the learner's intended meaning
-- keep it simple and natural
-- do not rewrite more than needed
-- if the learner sentence is already fine overall, leave it empty
-- correctedSentence should be the full corrected learner sentence, not just the target phrase
-
---------------------------------
-7. UNUSED PHRASES (IMPORTANT TONE)
---------------------------------
-
-If status is "unused":
-- do NOT scold
-- do NOT say the learner failed
-- do NOT imply there was a grammatical mistake
-- keep comment empty, or use a very short neutral note only if helpful
-
-This includes cases where:
-- the learner used a related word
-- the learner used a related expression
-- the learner expressed the same general idea differently
-- but the stored target phrase or accepted stored variant itself was not actually used
-
-Optional neutral comment:
-- "A related expression was used, but not this phrase."
-
-Suggestion must be empty for "unused".
-
---------------------------------
-8. SUGGESTIONS
---------------------------------
-
-Keep comments short, practical, and learner-friendly.
-
-Rules:
-- if status is "correct", suggestion should usually be empty
-- if status is "unused", suggestion must be empty
-- if status is "almost" or "wrong", provide a short corrected suggestion only if genuinely helpful
-
-Very important:
-- NEVER give a suggestion that is identical to the learner's wording
-- compare your suggestion against the learner message first
-- if the suggestion is effectively the same as what the learner already wrote, leave suggestion empty
-- do NOT claim something is wrong and then repeat the same wording as the correction
-- do NOT claim that the learner should change the phrase to a form that is already present in the learner message
-- do NOT claim that a correct inflected form is wrong just because it differs from the base form
-- do NOT claim that an accepted stored variant is wrong merely because it differs from the base phrase
-
---------------------------------
-9. DO NOT OVER-CORRECT
---------------------------------
-
-Only evaluate the TARGET PHRASE.
-
-Do NOT:
-- rewrite the whole sentence
-- suggest stylistic improvements
-- enforce optional grammatical choices
-- require definiteness unless strictly necessary
-- require additional words like "med" unless they are grammatically required
-- punish missing commas or harmless punctuation
-
-Examples:
-- "sænke energiforbrug" is acceptable
-- "sænke energiforbruget" is also acceptable
-- do NOT force one if the other is already natural
-- do NOT force "med" or quantities unless truly required
-
-Only correct actual grammatical or semantic errors, not style, commas, or completeness.
-
---------------------------------
-10. DETECTED TEXT GROUNDING (CRITICAL)
---------------------------------
-
-You MUST base your judgment on the exact detectedText.
-
-Before correcting:
-- check detectedText carefully
-
-Rules:
-- If detectedText is already correct, status must not be "almost" or "wrong" for that reason
-- NEVER suggest something identical to detectedText
-- NEVER claim a mistake if the correct form is already present
-- DO NOT imagine another version of the phrase
-- DO NOT normalize away from the learner's actual wording
-- DO NOT confuse a nearby base form with the actual learner form
-- DO NOT reject a phrase simply because the learner used an accepted stored variant instead of the base phrase
-
-If your suggested correction equals detectedText, leave suggestion empty.
-Only mention grammar mistakes if they are real and certain.
-If there are no mistakes, explicitly say:
-"No other grammar mistakes."
-Do NOT invent corrections.
-
---------------------------------
-11. STRICTNESS
---------------------------------
-
-Be careful, but do not be over-strict.
-
-Follow these priorities:
-- prefer meaning over tiny stylistic preferences
-- do NOT mark a phrase wrong because of small punctuation or style choices if the phrase itself is acceptable
-- do NOT over-correct comma placement
-- missing commas should normally be ignored
-- only use "wrong" when the phrase really fails in grammar, meaning, or context
-- prefer "wrong" over "correct" only when the learner sentence is not clearly meaningful
-- prefer "wrong" over "almost" when the phrase is placed into a sentence that does not make semantic sense
-- if the learner uses a related noun or different construction instead of the target phrase or accepted stored variants, prefer "unused" over "almost" or "wrong"
-
-Example of clearly wrong meaning:
-- "Jeg aftog ham"
-  → wrong, because the verb "aftage" cannot normally take a person as its object
-
---------------------------------
-12. OUTPUT
---------------------------------
-
-For detectedText:
-- include the exact part of the learner message that best matches the phrase
-- if unused, return empty string
-
-Return ONLY valid JSON with exactly this structure:
-{
-  "phraseFeedback": [
-    {
-      "phrase": "target phrase",
-      "status": "correct | almost | wrong | unused",
-      "comment": "short comment",
-      "suggestion": "short corrected version or empty string",
-      "detectedText": "exact matching text from learner message or empty string",
-      "sentenceIssue": "none | minor | major",
-      "sentenceComment": "short explanation of grammar issue outside the target phrase, or empty string",
-      "correctedSentence": "full corrected learner sentence or empty string"
-    }
-  ]
-}`,
-          },
-          {
-            role: "user",
-            content: `Previous assistant message:
+      const perPhraseResults = await Promise.all(
+        phrasesWithVariants.map(async (phraseItem) => {
+          const acceptedVariants = phraseItem.matchingVariants || [];
+
+          const singlePhraseResponse = await client.responses.create({
+            model: "gpt-4.1-mini",
+            input: [
+              {
+                role: "system",
+                content: buildSinglePhrasePrompt(
+                  phraseItem.phrase,
+                  acceptedVariants
+                ),
+              },
+              {
+                role: "user",
+                content: `Previous assistant message:
 ${previousAssistantMessage || "(none)"}
 
 Learner message:
 ${userMessage}`,
-          },
-        ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "phrase_feedback_response",
-            schema: {
-              type: "object",
-              properties: {
-                phraseFeedback: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      phrase: { type: "string" },
-                      status: {
-                        type: "string",
-                        enum: ["correct", "almost", "wrong", "unused"],
-                      },
-                      comment: { type: "string" },
-                      suggestion: { type: "string" },
-                      detectedText: { type: "string" },
-                      sentenceIssue: {
-                        type: "string",
-                        enum: ["none", "minor", "major"],
-                      },
-                      sentenceComment: { type: "string" },
-                      correctedSentence: { type: "string" },
+              },
+            ],
+            text: {
+              format: {
+                type: "json_schema",
+                name: "single_phrase_feedback_response",
+                schema: {
+                  type: "object",
+                  properties: {
+                    phrase: { type: "string" },
+                    status: {
+                      type: "string",
+                      enum: ["correct", "almost", "wrong", "unused"],
                     },
-                    required: [
-                      "phrase",
-                      "status",
-                      "comment",
-                      "suggestion",
-                      "detectedText",
-                      "sentenceIssue",
-                      "sentenceComment",
-                      "correctedSentence",
-                    ],
-                    additionalProperties: false,
+                    comment: { type: "string" },
+                    suggestion: { type: "string" },
+                    detectedText: { type: "string" },
+                    sentenceIssue: {
+                      type: "string",
+                      enum: ["none", "minor", "major"],
+                    },
+                    sentenceComment: { type: "string" },
+                    correctedSentence: { type: "string" },
                   },
+                  required: [
+                    "phrase",
+                    "status",
+                    "comment",
+                    "suggestion",
+                    "detectedText",
+                    "sentenceIssue",
+                    "sentenceComment",
+                    "correctedSentence",
+                  ],
+                  additionalProperties: false,
                 },
               },
-              required: ["phraseFeedback"],
-              additionalProperties: false,
             },
-          },
-        },
-      });
+          });
 
-      const detectionText = detectionResponse.output_text ?? "";
+          const rawText = singlePhraseResponse.output_text ?? "";
 
-      try {
-        const parsedDetection = JSON.parse(detectionText);
-        if (Array.isArray(parsedDetection.phraseFeedback)) {
-          phraseFeedback = parsedDetection.phraseFeedback;
-        }
-      } catch (err) {
-        console.error(
-          "Failed to parse phrase feedback JSON:",
-          detectionText,
-          err
-        );
-      }
+          try {
+            const parsed = JSON.parse(rawText);
+
+            return {
+              phrase: phraseItem.phrase,
+              status: parsed.status as
+                | "correct"
+                | "almost"
+                | "wrong"
+                | "unused",
+              comment: typeof parsed.comment === "string" ? parsed.comment : "",
+              suggestion:
+                typeof parsed.suggestion === "string" ? parsed.suggestion : "",
+              detectedText:
+                typeof parsed.detectedText === "string"
+                  ? parsed.detectedText
+                  : "",
+              sentenceIssue:
+                parsed.sentenceIssue === "minor" ||
+                parsed.sentenceIssue === "major"
+                  ? parsed.sentenceIssue
+                  : "none",
+              sentenceComment:
+                typeof parsed.sentenceComment === "string"
+                  ? parsed.sentenceComment
+                  : "",
+              correctedSentence:
+                typeof parsed.correctedSentence === "string"
+                  ? parsed.correctedSentence
+                  : "",
+            } satisfies PhraseFeedbackItem;
+          } catch (err) {
+            console.error(
+              "Failed to parse single phrase feedback JSON:",
+              phraseItem.phrase,
+              rawText,
+              err
+            );
+
+            return defaultPhraseFeedback(phraseItem.phrase);
+          }
+        })
+      );
+
+      phraseFeedback = perPhraseResults;
 
       const isFirstTurn =
         !previousAssistantMessage || !previousAssistantMessage.trim();
