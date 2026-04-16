@@ -133,6 +133,7 @@ export default function PracticePage() {
   const [meaningOptions, setMeaningOptions] = useState<MeaningMatchPair[]>([]);
   const [selectedMeaningByPhraseId, setSelectedMeaningByPhraseId] = useState<Record<string, string>>({});
   const [activeMeaningPhraseId, setActiveMeaningPhraseId] = useState<string | null>(null);
+  const [solvedMeaningPhraseIds, setSolvedMeaningPhraseIds] = useState<string[]>([]);
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -188,13 +189,27 @@ export default function PracticePage() {
     return Array.from(tags).sort((a, b) => a.localeCompare(b, "da"));
   }, [cards]);
 
+  const visibleMeaningPairs = useMemo(
+    () =>
+      meaningPairs.filter(
+        (pair) => !solvedMeaningPhraseIds.includes(pair.phraseId)
+      ),
+    [meaningPairs, solvedMeaningPhraseIds]
+  );
+
+  const visibleMeaningOptions = useMemo(
+    () =>
+      meaningOptions.filter(
+        (option) => !solvedMeaningPhraseIds.includes(option.phraseId)
+      ),
+    [meaningOptions, solvedMeaningPhraseIds]
+  );
+
   const allMeaningMatched =
     meaningPairs.length > 0 &&
-    meaningPairs.every((pair) => selectedMeaningByPhraseId[pair.phraseId]);
+    solvedMeaningPhraseIds.length === meaningPairs.length;
 
-  const meaningCorrectCount = meaningPairs.filter(
-    (pair) => selectedMeaningByPhraseId[pair.phraseId] === pair.meaning
-  ).length;
+  const meaningCorrectCount = solvedMeaningPhraseIds.length;
 
   const daysSinceLastPracticed = (card: PhraseCard) => {
     if (!card.last_practiced_at) return null;
@@ -353,11 +368,40 @@ export default function PracticePage() {
     setMeaningOptions(shuffle(pairs));
     setSelectedMeaningByPhraseId({});
     setActiveMeaningPhraseId(null);
+    setSolvedMeaningPhraseIds([]);
     setPracticeStage("meaning_match");
   };
 
   const assignMeaningToActivePhrase = (meaning: string) => {
     if (!activeMeaningPhraseId) return;
+
+    const targetPair = meaningPairs.find(
+      (pair) => pair.phraseId === activeMeaningPhraseId
+    );
+
+    if (!targetPair) {
+      setActiveMeaningPhraseId(null);
+      return;
+    }
+
+    const isCorrect = targetPair.meaning === meaning;
+
+    if (isCorrect) {
+      setSolvedMeaningPhraseIds((prev) =>
+        prev.includes(activeMeaningPhraseId)
+          ? prev
+          : [...prev, activeMeaningPhraseId]
+      );
+
+      setSelectedMeaningByPhraseId((prev) => {
+        const next = { ...prev };
+        delete next[activeMeaningPhraseId];
+        return next;
+      });
+
+      setActiveMeaningPhraseId(null);
+      return;
+    }
 
     setSelectedMeaningByPhraseId((prev) => {
       const next: Record<string, string> = { ...prev };
@@ -766,6 +810,7 @@ export default function PracticePage() {
     setMeaningOptions([]);
     setSelectedMeaningByPhraseId({});
     setActiveMeaningPhraseId(null);
+    setSolvedMeaningPhraseIds([]);
 
     if (practiceSource === "selected") {
       setPracticeSource("all");
@@ -846,6 +891,7 @@ export default function PracticePage() {
     setMeaningOptions([]);
     setSelectedMeaningByPhraseId({});
     setActiveMeaningPhraseId(null);
+    setSolvedMeaningPhraseIds([]);
     setPracticeStage("preview");
   };
 
@@ -1755,157 +1801,190 @@ export default function PracticePage() {
           Correct matches: {meaningCorrectCount} / {meaningPairs.length}
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 16,
-            alignItems: "start",
-          }}
-        >
-          <div className="mini-box" style={{ margin: 0 }}>
-            <div style={{ fontWeight: 700, marginBottom: 10 }}>Phrases</div>
+        {!allMeaningMatched ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 16,
+              alignItems: "start",
+            }}
+          >
+            <div className="mini-box" style={{ margin: 0 }}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>Phrases</div>
 
-            <div style={{ display: "grid", gap: 8 }}>
-              {meaningPairs.map((pair) => {
-                const matchedMeaning = getPhraseMatchedMeaning(pair.phraseId);
-                const isActive = activeMeaningPhraseId === pair.phraseId;
-                const isCorrect = matchedMeaning === pair.meaning;
-                const hasMatch = !!matchedMeaning;
+              <div style={{ display: "grid", gap: 8 }}>
+                {visibleMeaningPairs.map((pair) => {
+                  const matchedMeaning = getPhraseMatchedMeaning(pair.phraseId);
+                  const isActive = activeMeaningPhraseId === pair.phraseId;
+                  const hasMatch = !!matchedMeaning;
 
-                return (
-                  <div
-                    key={pair.phraseId}
-                    style={{
-                      border: isActive
-                        ? "2px solid #2563eb"
-                        : hasMatch
-                          ? "1px solid #d1d5db"
-                          : "1px solid #e5e7eb",
-                      borderRadius: 12,
-                      padding: 12,
-                      background: isActive ? "#eff6ff" : "#ffffff",
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setActiveMeaningPhraseId((prev) =>
-                          prev === pair.phraseId ? null : pair.phraseId
-                        )
-                      }
-                      className="button-secondary"
+                  return (
+                    <div
+                      key={pair.phraseId}
                       style={{
-                        width: "100%",
-                        justifyContent: "flex-start",
-                        textAlign: "left",
-                        minHeight: 0,
+                        border: isActive
+                          ? "2px solid #2563eb"
+                          : hasMatch
+                            ? "1px solid #d1d5db"
+                            : "1px solid #e5e7eb",
+                        borderRadius: 12,
+                        padding: 12,
+                        background: isActive ? "#eff6ff" : "#ffffff",
                       }}
                     >
-                      <span style={{ fontWeight: 600 }}>{pair.phrase}</span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setActiveMeaningPhraseId((prev) =>
+                            prev === pair.phraseId ? null : pair.phraseId
+                          )
+                        }
+                        className="button-secondary"
+                        style={{
+                          width: "100%",
+                          justifyContent: "flex-start",
+                          textAlign: "left",
+                          minHeight: 0,
+                        }}
+                      >
+                        <span style={{ fontWeight: 600 }}>{pair.phrase}</span>
+                      </button>
 
-                    {matchedMeaning && (
-                      <div style={{ marginTop: 8 }}>
-                        <div
-                          style={{
-                            fontSize: 14,
-                            color: isCorrect ? "#166534" : "#92400e",
-                            background: isCorrect ? "#dcfce7" : "#fef3c7",
-                            borderRadius: 10,
-                            padding: "8px 10px",
-                          }}
-                        >
-                          {matchedMeaning}
-                        </div>
-
-                        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <button
-                            type="button"
-                            onClick={() => clearMeaningMatch(pair.phraseId)}
-                            className="button-secondary button-small"
+                      {matchedMeaning && (
+                        <div style={{ marginTop: 8 }}>
+                          <div
+                            style={{
+                              fontSize: 14,
+                              color: "#92400e",
+                              background: "#fef3c7",
+                              borderRadius: 10,
+                              padding: "8px 10px",
+                            }}
                           >
-                            Clear
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+                            {matchedMeaning}
+                          </div>
 
-          <div className="mini-box" style={{ margin: 0 }}>
-            <div style={{ fontWeight: 700, marginBottom: 10 }}>Danish meanings</div>
-
-            <div style={{ display: "grid", gap: 8 }}>
-              {meaningOptions.map((option) => {
-                const assignedPhraseId = getMeaningAssignedPhraseId(option.meaning);
-                const isAssigned = !!assignedPhraseId;
-                const assignedPhrase = meaningPairs.find(
-                  (pair) => pair.phraseId === assignedPhraseId
-                );
-                const activeCanTakeThis = !!activeMeaningPhraseId;
-
-                return (
-                  <button
-                    key={`${option.phraseId}-${option.meaning}`}
-                    type="button"
-                    onClick={() => assignMeaningToActivePhrase(option.meaning)}
-                    disabled={!activeCanTakeThis}
-                    className={`button-secondary ${
-                      !activeCanTakeThis ? "button-disabled" : ""
-                    }`}
-                    style={{
-                      width: "100%",
-                      textAlign: "left",
-                      justifyContent: "flex-start",
-                      whiteSpace: "normal",
-                      padding: 12,
-                      opacity: !activeCanTakeThis ? 0.7 : 1,
-                      border: isAssigned ? "2px solid #d1d5db" : undefined,
-                      background: isAssigned ? "#f9fafb" : undefined,
-                    }}
-                  >
-                    <div style={{ width: "100%" }}>
-                      <div>{option.meaning}</div>
-
-                      {assignedPhrase && (
-                        <div
-                          style={{
-                            marginTop: 6,
-                            fontSize: 12,
-                            color: "#6b7280",
-                          }}
-                        >
-                          Matched to: {assignedPhrase.phrase}
+                          <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <button
+                              type="button"
+                              onClick={() => clearMeaningMatch(pair.phraseId)}
+                              className="button-secondary button-small"
+                            >
+                              Clear
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
-                  </button>
-                );
-              })}
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="mini-box" style={{ margin: 0 }}>
+              <div style={{ fontWeight: 700, marginBottom: 10 }}>Danish meanings</div>
+
+              <div style={{ display: "grid", gap: 8 }}>
+                {visibleMeaningOptions.map((option) => {
+                  const assignedPhraseId = getMeaningAssignedPhraseId(option.meaning);
+                  const isAssigned = !!assignedPhraseId;
+                  const assignedPhrase = visibleMeaningPairs.find(
+                    (pair) => pair.phraseId === assignedPhraseId
+                  );
+                  const activeCanTakeThis = !!activeMeaningPhraseId;
+
+                  return (
+                    <button
+                      key={`${option.phraseId}-${option.meaning}`}
+                      type="button"
+                      onClick={() => assignMeaningToActivePhrase(option.meaning)}
+                      disabled={!activeCanTakeThis}
+                      className={`button-secondary ${
+                        !activeCanTakeThis ? "button-disabled" : ""
+                      }`}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        justifyContent: "flex-start",
+                        whiteSpace: "normal",
+                        padding: 12,
+                        opacity: !activeCanTakeThis ? 0.7 : 1,
+                        border: isAssigned ? "2px solid #d1d5db" : undefined,
+                        background: isAssigned ? "#f9fafb" : undefined,
+                      }}
+                    >
+                      <div style={{ width: "100%" }}>
+                        <div>{option.meaning}</div>
+
+                        {assignedPhrase && (
+                          <div
+                            style={{
+                              marginTop: 6,
+                              fontSize: 12,
+                              color: "#6b7280",
+                            }}
+                          >
+                            Matched to: {assignedPhrase.phrase}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </div>
-
-        <div className="controls-row" style={{ marginTop: 16 }}>
-          <button
-            onClick={() => void finishMeaningExercise()}
-            disabled={!allMeaningMatched}
-            className={`button-primary ${!allMeaningMatched ? "button-disabled" : ""}`}
+        ) : (
+          <div
+            className="success-box"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
           >
-            Continue to chat
-          </button>
+            <strong>Nice — you matched all phrases correctly.</strong>
+            <button
+              onClick={() => void finishMeaningExercise()}
+              className="button-primary"
+            >
+              Continue to chat
+            </button>
+          </div>
+        )}
 
-          <button
-            onClick={() => setPracticeStage("preview")}
-            className="button-secondary"
-          >
-            Back
-          </button>
-        </div>
+        {!allMeaningMatched && (
+          <div className="controls-row" style={{ marginTop: 16 }}>
+            <button
+              onClick={() => void finishMeaningExercise()}
+              disabled={!allMeaningMatched}
+              className={`button-primary ${!allMeaningMatched ? "button-disabled" : ""}`}
+            >
+              Continue to chat
+            </button>
+
+            <button
+              onClick={() => setPracticeStage("preview")}
+              className="button-secondary"
+            >
+              Back
+            </button>
+          </div>
+        )}
+
+        {allMeaningMatched && (
+          <div className="controls-row" style={{ marginTop: 16 }}>
+            <button
+              onClick={() => setPracticeStage("preview")}
+              className="button-secondary"
+            >
+              Back
+            </button>
+          </div>
+        )}
       </div>
     )}
 
@@ -2171,7 +2250,7 @@ export default function PracticePage() {
                     : messages.length > 0
                       ? "Restart practice"
                       : "Start practice"}
-                </button>
+                  </button>
               )}
             </div>
           </div>
