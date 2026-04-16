@@ -436,12 +436,18 @@ export default function Home() {
     return label === "new" || label === "familiar" || (days !== null && days > 14);
   }).length;
 
-  const hasSamePhraseMeaningInCards = (phraseValue: string, translationEn: string) => {
-    return cards.some((card) =>
-      isSamePhraseMeaning(card, {
-        phrase: phraseValue,
-        translation_en: translationEn,
-      })
+  const hasSamePhraseMeaningInCards = (
+    phraseValue: string,
+    translationEn: string,
+    excludeCardId?: string
+  ) => {
+    return cards.some(
+      (card) =>
+        card.id !== excludeCardId &&
+        isSamePhraseMeaning(card, {
+          phrase: phraseValue,
+          translation_en: translationEn,
+        })
     );
   };
 
@@ -1335,13 +1341,10 @@ export default function Home() {
   const saveEdit = async (id: string) => {
     if (!editDraft) return;
 
-    const duplicate = cards.some(
-      (card) =>
-        card.id !== id &&
-        isSamePhraseMeaning(card, {
-          phrase: editDraft.phrase,
-          translation_en: editDraft.translation_en,
-        })
+    const duplicate = hasSamePhraseMeaningInCards(
+      editDraft.phrase,
+      editDraft.translation_en,
+      id
     );
 
     if (duplicate) {
@@ -1447,13 +1450,10 @@ export default function Home() {
 
     const refreshedPhrase = parsed.corrected_phrase.trim();
 
-    const duplicate = cards.some(
-      (other) =>
-        other.id !== card.id &&
-        isSamePhraseMeaning(other, {
-          phrase: refreshedPhrase,
-          translation_en: parsed.translation_en,
-        })
+    const duplicate = hasSamePhraseMeaningInCards(
+      refreshedPhrase,
+      parsed.translation_en,
+      card.id
     );
 
     if (duplicate) {
@@ -1513,13 +1513,10 @@ export default function Home() {
       return;
     }
 
-    const duplicateInDrafts = pendingDrafts.some(
-      (other) =>
-        other.id !== draft.id &&
-        isSamePhraseMeaning(other, {
-          phrase: refreshedPhrase,
-          translation_en: parsed.translation_en,
-        })
+    const duplicateInDrafts = hasSamePhraseMeaningInPendingDrafts(
+      refreshedPhrase,
+      parsed.translation_en,
+      draft.id
     );
 
     if (duplicateInDrafts) {
