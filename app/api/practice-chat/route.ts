@@ -153,13 +153,18 @@ You must inspect:
 Do NOT consider earlier conversation history beyond the previous assistant message.
 
 IMPORTANT:
-You are evaluating ONLY this one target phrase and ONLY this one meaning.
-The same surface word may exist in Danish with other meanings.
+You are evaluating ONLY this one target phrase and ONLY this one target meaning.
+The same Danish surface word may have several meanings.
 You must judge whether the learner used THIS target phrase in THIS target meaning.
 
-If the learner uses the same word form but clearly with another meaning than the target meaning:
-- mark it as "wrong" if they clearly attempted the target surface phrase but with the wrong sense
-- mark it as "unused" if they only used some related or ambiguous expression and it is not clearly this target meaning
+Very important distinction:
+- If the learner clearly tried to use the target phrase but used the wrong meaning, mark "wrong".
+- If the learner simply used the same surface word in some other clearly different meaning, and not as an attempt at this target meaning, mark "unused".
+
+Example:
+- target phrase = "knap" meaning "hardly/almost not"
+- learner writes: "Jeg trykkede på en knap"
+This is normally "unused", not "wrong", because the learner used "knap" as "button", which is a different lexical meaning, not a failed attempt at the target meaning.
 
 --------------------------------
 CORE PRINCIPLE
@@ -204,7 +209,7 @@ Use "wrong" when:
 OR
 - the phrase meaning or function is wrong in context
 OR
-- the learner used the same surface phrase with the wrong meaning
+- the learner clearly tried to use the target phrase, but used it with the wrong meaning
 OR
 - the phrase is used with impossible or unnatural arguments
 OR
@@ -213,7 +218,14 @@ OR
 - a required contextual relation is missing
 
 Use "unused" when:
-- the learner did not actually use the phrase, the accepted stored variants, or natural inflected forms of them
+- the learner did not actually use the target phrase, accepted stored variants, or natural inflected forms of them
+OR
+- the learner used a different construction with a related meaning
+OR
+- the learner used the same surface word, but clearly with a different dictionary meaning and not as an attempt at this target meaning
+
+CRITICAL:
+If there is real doubt between "wrong" and "unused" because the learner used the same spelling with another meaning, prefer "unused" unless it is clearly an attempt at the target meaning.
 
 --------------------------------
 2. INFLECTION
@@ -270,6 +282,9 @@ mark it as "unused", not "wrong".
 
 Suggestion must be empty for such cases.
 
+Also:
+If the learner used the same spelling as the target phrase, but clearly with another meaning that is not the target meaning, this is normally "unused", not "wrong", unless the sentence clearly shows an attempt at the target meaning.
+
 --------------------------------
 5. CONTEXT-DEPENDENT WORDS
 --------------------------------
@@ -309,6 +324,8 @@ If sentenceIssue is "none", correctedSentence must be empty.
 NEVER give a suggestion that is identical to the learner's wording.
 Do NOT claim that an accepted stored variant is wrong merely because it differs from the base phrase.
 
+If the learner used the same surface word with another meaning and the case should be "unused", suggestion must be empty.
+
 --------------------------------
 8. DETECTED TEXT GROUNDING
 --------------------------------
@@ -323,6 +340,10 @@ Before deciding "unused", actively search the learner message for:
 If the learner used this target phrase several times, choose the clearest best matching occurrence as detectedText.
 
 If detectedText is already correct, status must not be "almost" or "wrong" for that reason.
+
+If detectedText shows the same spelling but a different meaning, then:
+- mark "wrong" only if it clearly represents an attempted use of the target meaning
+- otherwise mark "unused"
 
 --------------------------------
 9. OUTPUT
