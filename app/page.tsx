@@ -110,13 +110,23 @@ const normalizePhraseKey = (value: string) =>
 const normalizeMeaningKey = (value?: string | null) =>
   (value || "").trim().toLowerCase().replace(/\s+/g, " ");
 
+const isSamePhraseMeaning = (
+  a: { phrase: string; translation_en?: string | null },
+  b: { phrase: string; translation_en?: string | null }
+) =>
+  normalizePhraseKey(a.phrase) === normalizePhraseKey(b.phrase) &&
+  normalizeMeaningKey(a.translation_en) === normalizeMeaningKey(b.translation_en);
+
 const sortKeyDa = (phrase: string) => phrase.trim().replace(/^at\s+/i, "");
 
 const sortByPhraseDa = <T extends { phrase: string; translation_en?: string }>(
   items: T[]
 ) =>
   [...items].sort((a, b) => {
-    const phraseCompare = sortKeyDa(a.phrase).localeCompare(sortKeyDa(b.phrase), "da");
+    const phraseCompare = sortKeyDa(a.phrase).localeCompare(
+      sortKeyDa(b.phrase),
+      "da"
+    );
     if (phraseCompare !== 0) return phraseCompare;
     return (a.translation_en || "").localeCompare(b.translation_en || "", "en");
   });
@@ -427,13 +437,11 @@ export default function Home() {
   }).length;
 
   const hasSamePhraseMeaningInCards = (phraseValue: string, translationEn: string) => {
-    const phraseKey = normalizePhraseKey(phraseValue);
-    const meaningKey = normalizeMeaningKey(translationEn);
-
-    return cards.some(
-      (card) =>
-        normalizePhraseKey(card.phrase) === phraseKey &&
-        normalizeMeaningKey(card.translation_en) === meaningKey
+    return cards.some((card) =>
+      isSamePhraseMeaning(card, {
+        phrase: phraseValue,
+        translation_en: translationEn,
+      })
     );
   };
 
@@ -442,14 +450,13 @@ export default function Home() {
     translationEn: string,
     excludeDraftId?: string
   ) => {
-    const phraseKey = normalizePhraseKey(phraseValue);
-    const meaningKey = normalizeMeaningKey(translationEn);
-
     return pendingDrafts.some(
       (draft) =>
         draft.id !== excludeDraftId &&
-        normalizePhraseKey(draft.phrase) === phraseKey &&
-        normalizeMeaningKey(draft.translation_en) === meaningKey
+        isSamePhraseMeaning(draft, {
+          phrase: phraseValue,
+          translation_en: translationEn,
+        })
     );
   };
 
@@ -561,15 +568,18 @@ export default function Home() {
     phraseKey: string,
     translationEn?: string | null
   ) => {
-    const normalizedPhrase = normalizePhraseKey(phraseKey);
-    const normalizedMeaning = normalizeMeaningKey(translationEn);
+    const existingCard = cards.find((card) => {
+      const samePhrase =
+        normalizePhraseKey(card.phrase) === normalizePhraseKey(phraseKey);
+      if (!samePhrase) return false;
 
-    const existingCard = cards.find(
-      (card) =>
-        normalizePhraseKey(card.phrase) === normalizedPhrase &&
-        (!translationEn ||
-          normalizeMeaningKey(card.translation_en) === normalizedMeaning)
-    );
+      if (!translationEn) return true;
+
+      return (
+        normalizeMeaningKey(card.translation_en) ===
+        normalizeMeaningKey(translationEn)
+      );
+    });
 
     if (!existingCard) return false;
 
@@ -1328,8 +1338,10 @@ export default function Home() {
     const duplicate = cards.some(
       (card) =>
         card.id !== id &&
-        normalizePhraseKey(card.phrase) === normalizePhraseKey(editDraft.phrase) &&
-        normalizeMeaningKey(card.translation_en) === normalizeMeaningKey(editDraft.translation_en)
+        isSamePhraseMeaning(card, {
+          phrase: editDraft.phrase,
+          translation_en: editDraft.translation_en,
+        })
     );
 
     if (duplicate) {
@@ -1438,8 +1450,10 @@ export default function Home() {
     const duplicate = cards.some(
       (other) =>
         other.id !== card.id &&
-        normalizePhraseKey(other.phrase) === normalizePhraseKey(refreshedPhrase) &&
-        normalizeMeaningKey(other.translation_en) === normalizeMeaningKey(parsed.translation_en)
+        isSamePhraseMeaning(other, {
+          phrase: refreshedPhrase,
+          translation_en: parsed.translation_en,
+        })
     );
 
     if (duplicate) {
@@ -1502,8 +1516,10 @@ export default function Home() {
     const duplicateInDrafts = pendingDrafts.some(
       (other) =>
         other.id !== draft.id &&
-        normalizePhraseKey(other.phrase) === normalizePhraseKey(refreshedPhrase) &&
-        normalizeMeaningKey(other.translation_en) === normalizeMeaningKey(parsed.translation_en)
+        isSamePhraseMeaning(other, {
+          phrase: refreshedPhrase,
+          translation_en: parsed.translation_en,
+        })
     );
 
     if (duplicateInDrafts) {
@@ -3144,7 +3160,11 @@ export default function Home() {
           justifyContent: "center",
           padding: 16,
         }}
-        onClick={closeMeaningPicker}
+        onClick={() => {
+          if (!meaningPickerLoading) {
+            closeMeaningPicker();
+          }
+        }}
       >
         <div
           className="card"
@@ -3209,42 +3229,48 @@ export default function Home() {
             </div>
           )}
 
-          <div style={{ display: "grid", gap: 12 }}>
-            {meaningOptions.map((option, index) => (
-              <div
-                key={`${option.translation_en}-${index}`}
-                className="mini-box"
-                style={{
-                  margin: 0,
-                  padding: 14,
-                  border: "1px solid #e5e7eb",
-                }}
-              >
-                <div style={{ marginBottom: 8 }}>
-                  <div style={{ fontWeight: 700, fontSize: 16 }}>
-                    {option.translation_en}
-                  </div>
-                  <div className="meta-text" style={{ marginTop: 4 }}>
-                    {option.short_explanation_da}
-                  </div>
-                </div>
-
-                {option.example_da && (
-                  <div style={{ marginBottom: 10, fontSize: 14, color: "#374151" }}>
-                    <b>Example:</b> {option.example_da}
-                  </div>
-                )}
-
-                <button
-                  onClick={() => void confirmMeaningChoice(option)}
-                  className="button-primary"
-                  disabled={meaningPickerLoading}
+          {meaningPickerLoading && meaningOptions.length === 0 ? (
+            <div className="mini-box" style={{ margin: 0 }}>
+              Preparing meaning options...
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {meaningOptions.map((option, index) => (
+                <div
+                  key={`${option.translation_en}-${index}`}
+                  className="mini-box"
+                  style={{
+                    margin: 0,
+                    padding: 14,
+                    border: "1px solid #e5e7eb",
+                  }}
                 >
-                  {meaningPickerLoading ? "Generating..." : "Choose this meaning"}
-                </button>
-              </div>
-            ))}
-          </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontWeight: 700, fontSize: 16 }}>
+                      {option.translation_en}
+                    </div>
+                    <div className="meta-text" style={{ marginTop: 4 }}>
+                      {option.short_explanation_da}
+                    </div>
+                  </div>
+
+                  {option.example_da && (
+                    <div style={{ marginBottom: 10, fontSize: 14, color: "#374151" }}>
+                      <b>Example:</b> {option.example_da}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => void confirmMeaningChoice(option)}
+                    className="button-primary"
+                    disabled={meaningPickerLoading}
+                  >
+                    {meaningPickerLoading ? "Generating..." : "Choose this meaning"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     )}
