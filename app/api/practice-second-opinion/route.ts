@@ -7,6 +7,7 @@ type ChatMessage = {
 };
 
 type PhraseFeedback = {
+  phraseId: string;
   phrase: string;
   status: "correct" | "almost" | "wrong" | "unused";
   comment: string;
@@ -16,9 +17,11 @@ type PhraseFeedback = {
   sentenceComment: string;
 };
 
-type PhraseCard = {
+type IncomingPhraseCard = {
   id: string;
   phrase: string;
+  translation_en?: string | null;
+  short_explanation?: string | null;
 };
 
 type VariantRow = {
@@ -30,6 +33,8 @@ type VariantRow = {
 type PhraseWithVariants = {
   id: string;
   phrase: string;
+  translation_en: string;
+  short_explanation: string;
   matchingVariants: string[];
 };
 
@@ -71,7 +76,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const typedCards: PhraseCard[] = cards
+    const typedCards: IncomingPhraseCard[] = cards
       .filter(
         (card: any) =>
           card &&
@@ -81,6 +86,12 @@ export async function POST(req: Request) {
       .map((card: any) => ({
         id: card.id,
         phrase: card.phrase,
+        translation_en:
+          typeof card.translation_en === "string" ? card.translation_en : "",
+        short_explanation:
+          typeof card.short_explanation === "string"
+            ? card.short_explanation
+            : "",
       }));
 
     if (typedCards.length === 0) {
@@ -90,12 +101,39 @@ export async function POST(req: Request) {
       );
     }
 
+    const typedFeedback: PhraseFeedback[] = currentFeedback
+      .filter(
+        (item: any) =>
+          item &&
+          typeof item.phraseId === "string" &&
+          typeof item.phrase === "string" &&
+          typeof item.status === "string"
+      )
+      .map((item: any) => ({
+        phraseId: item.phraseId,
+        phrase: item.phrase,
+        status: item.status,
+        comment: typeof item.comment === "string" ? item.comment : "",
+        suggestion: typeof item.suggestion === "string" ? item.suggestion : "",
+        detectedText:
+          typeof item.detectedText === "string" ? item.detectedText : "",
+        sentenceIssue:
+          item.sentenceIssue === "minor" || item.sentenceIssue === "major"
+            ? item.sentenceIssue
+            : "none",
+        sentenceComment:
+          typeof item.sentenceComment === "string"
+            ? item.sentenceComment
+            : "",
+      }));
+
     const phraseIds = typedCards.map((card) => card.id);
-    const phraseList: string[] = typedCards.map((card) => card.phrase);
 
     let phrasesWithVariants: PhraseWithVariants[] = typedCards.map((card) => ({
       id: card.id,
       phrase: card.phrase,
+      translation_en: card.translation_en ?? "",
+      short_explanation: card.short_explanation ?? "",
       matchingVariants: [],
     }));
 
@@ -123,6 +161,8 @@ export async function POST(req: Request) {
         phrasesWithVariants = typedCards.map((card) => ({
           id: card.id,
           phrase: card.phrase,
+          translation_en: card.translation_en ?? "",
+          short_explanation: card.short_explanation ?? "",
           matchingVariants: Array.from(
             new Set(variantsByPhraseId.get(card.id) || [])
           ),
@@ -138,7 +178,11 @@ export async function POST(req: Request) {
                 .map((v) => `  - ${v}`)
                 .join("\n")}`
             : "";
-        return `- Base phrase: ${item.phrase}${variantsText}`;
+
+        return `- phraseId: ${item.id}
+  Base phrase: ${item.phrase}
+  Target meaning in English: ${item.translation_en || "(not provided)"}
+  Target explanation in Danish: ${item.short_explanation || "(not provided)"}${variantsText}`;
       })
       .join("\n");
 
@@ -170,6 +214,7 @@ Only change judgments that are:
 - based on hallucinated corrections
 - based on confusing the base form with the actual learner form
 - based on rejecting an accepted stored variant that should count
+- based on confusing one meaning of a surface word with another meaning of the same surface word
 
 Target phrases and accepted stored variants:
 ${phraseListWithVariantsForPrompt}
@@ -199,6 +244,20 @@ So:
 Your job is fairness, not score inflation.
 
 --------------------------------
+MEANING-SENSITIVE REVIEW
+--------------------------------
+
+Some Danish surface words may appear in more than one saved card with different meanings.
+You must review each item by phraseId and target meaning, not by surface word alone.
+
+That means:
+- the same written word can be correct for one card and irrelevant for another
+- do not revise feedback as if all identical surface forms are the same target
+- if the learner used the same surface word with another meaning, do not automatically treat that as wrong for this target
+- when the learner clearly used another meaning of the same word, "unused" is often more appropriate than "wrong"
+- only keep "wrong" when the learner clearly attempted THIS target meaning and got it wrong
+
+--------------------------------
 REVIEW PRINCIPLES
 --------------------------------
 
@@ -213,6 +272,7 @@ REVIEW PRINCIPLES
 9. Do NOT punish missing commas or harmless punctuation.
 10. Accepted stored variants count as valid usage of the target phrase.
 11. Natural inflected forms of accepted stored variants also count.
+12. Review each phrase by phraseId and target meaning, not only by surface phrase.
 
 --------------------------------
 IMPORTANT DANISH RULES
@@ -272,6 +332,7 @@ Very important:
 - if the current feedback is already reasonable, preserve it
 - do not reject a phrase just because the learner used an accepted stored variant instead of the base phrase
 - do not reject a phrase just because the learner used a correct inflected form of an accepted stored variant
+- do not confuse identical-looking surface words across different meanings
 
 Only mention grammar mistakes if they are real and certain.
 If there are no mistakes, explicitly say:
@@ -282,6 +343,7 @@ Return ONLY valid JSON with exactly this structure:
 {
   "phraseFeedback": [
     {
+      "phraseId": "target phrase id",
       "phrase": "target phrase",
       "status": "correct | almost | wrong | unused",
       "comment": "short comment",
@@ -302,7 +364,7 @@ Learner message:
 ${userMessage}
 
 Current feedback:
-${JSON.stringify(currentFeedback, null, 2)}`,
+${JSON.stringify(typedFeedback, null, 2)}`,
         },
       ],
       text: {
@@ -317,6 +379,7 @@ ${JSON.stringify(currentFeedback, null, 2)}`,
                 items: {
                   type: "object",
                   properties: {
+                    phraseId: { type: "string" },
                     phrase: { type: "string" },
                     status: {
                       type: "string",
@@ -332,6 +395,7 @@ ${JSON.stringify(currentFeedback, null, 2)}`,
                     sentenceComment: { type: "string" },
                   },
                   required: [
+                    "phraseId",
                     "phrase",
                     "status",
                     "comment",

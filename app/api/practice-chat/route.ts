@@ -847,13 +847,18 @@ ${userMessage}`,
 
       try {
         await evaluateAndApplySpontaneousUsage({
-          openai: client,
-          supabase,
-          userMessage,
-          previousAssistantMessage,
-          currentTargetPhrases: phraseList,
-          isFirstTurn,
-        });
+  openai: client,
+  supabase,
+  userMessage,
+  previousAssistantMessage,
+  currentTargetPhrases: phrasesWithVariants.map((item) => ({
+    id: item.id,
+    phrase: item.phrase,
+    translation_en: item.translation_en,
+    short_explanation: item.short_explanation,
+  })),
+  isFirstTurn,
+});
       } catch (err) {
         console.error("Spontaneous tracking failed:", err);
       }

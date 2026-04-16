@@ -3,9 +3,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 type SpontaneousStatus = "correct" | "almost" | "wrong" | "unused";
 
+type TargetPhraseRef = {
+  id?: string;
+  phrase: string;
+  translation_en?: string | null;
+  short_explanation?: string | null;
+};
+
 type PhraseRow = {
   id: string;
   phrase: string;
+  translation_en: string | null;
+  short_explanation: string | null;
   created_at: string | null;
   times_attempted: number | null;
   times_correct: number | null;
@@ -28,6 +37,7 @@ type CandidatePhrase = PhraseRow & {
 };
 
 type SpontaneousMatch = {
+  phraseId: string;
   phrase: string;
   status: SpontaneousStatus;
   detectedText: string;
@@ -44,7 +54,7 @@ type EvaluateAndApplySpontaneousUsageArgs = {
   supabase: SupabaseClient;
   userMessage: string;
   previousAssistantMessage: string;
-  currentTargetPhrases: string[];
+  currentTargetPhrases: TargetPhraseRef[];
   isFirstTurn?: boolean;
 };
 
@@ -65,6 +75,12 @@ const normalizeText = (value: string) =>
     .replace(/[.,!?;:()"“”'‘’]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+const normalizePhraseKey = (value: string) =>
+  value.trim().toLowerCase().replace(/\s+/g, " ");
+
+const normalizeMeaningKey = (value?: string | null) =>
+  (value || "").trim().toLowerCase().replace(/\s+/g, " ");
 
 const stripLeadingAt = (phrase: string) =>
   phrase.trim().replace(/^at\s+/i, "").trim();
@@ -96,17 +112,28 @@ const isRecentWithinDays = (iso: string | null, days: number) => {
   return diff !== null && diff <= days;
 };
 
+const samePhraseMeaning = (
+  a: { phrase: string; translation_en?: string | null },
+  b: { phrase: string; translation_en?: string | null }
+) =>
+  normalizePhraseKey(a.phrase) === normalizePhraseKey(b.phrase) &&
+  normalizeMeaningKey(a.translation_en) === normalizeMeaningKey(b.translation_en);
+
 const getFilteredNonTargetRows = (
   allRows: CandidatePhrase[],
-  currentTargetPhrases: string[]
+  currentTargetPhrases: TargetPhraseRef[]
 ) => {
-  const currentTargets = new Set(
-    currentTargetPhrases.map((phrase) => normalizeText(phrase))
-  );
-
   return allRows.filter((row) => {
-    if (currentTargets.has(normalizeText(row.phrase))) {
-      console.log("[spontaneous] filtered out target:", row.phrase);
+    const isExactCurrentTarget = currentTargetPhrases.some((target) =>
+      samePhraseMeaning(row, target)
+    );
+
+    if (isExactCurrentTarget) {
+      console.log(
+        "[spontaneous] filtered out exact current target:",
+        row.phrase,
+        row.translation_en
+      );
       return false;
     }
 
@@ -215,7 +242,7 @@ export async function evaluateAndApplySpontaneousUsage({
   if (!trimmedMessage) return [];
 
   const { data, error } = await supabase.from("phrases").select(
-    "id, phrase, created_at, times_attempted, times_correct, times_almost, last_practiced_at, last_spontaneous_used_at, times_spontaneous_correct, times_spontaneous_almost, times_spontaneous_wrong"
+    "id, phrase, translation_en, short_explanation, created_at, times_attempted, times_correct, times_almost, last_practiced_at, last_spontaneous_used_at, times_spontaneous_correct, times_spontaneous_almost, times_spontaneous_wrong"
   );
 
   if (error) {
@@ -227,7 +254,6 @@ export async function evaluateAndApplySpontaneousUsage({
   }
 
   const phraseRows = (data || []) as PhraseRow[];
-
   const phraseIds = phraseRows.map((row) => row.id);
 
   let allRows: CandidatePhrase[] = phraseRows.map((row) => ({
@@ -279,13 +305,26 @@ export async function evaluateAndApplySpontaneousUsage({
     return [];
   }
 
-  const candidateMap = new Map(
-    candidatePool.map((row) => [normalizeText(row.phrase), row])
+  const candidateMapById = new Map(
+    candidatePool.map((row) => [row.id, row] as const)
   );
 
-  const currentTargets = new Set(
-    currentTargetPhrases.map((phrase) => normalizeText(phrase))
+  const currentTargetIds = new Set(
+    currentTargetPhrases.map((target) => target.id).filter(Boolean)
   );
+
+  const currentTargetBlock =
+    currentTargetPhrases.length > 0
+      ? currentTargetPhrases
+          .map(
+            (target) =>
+              `- phraseId: ${target.id || "(no id)"}
+  Base phrase: ${target.phrase}
+  Target meaning in English: ${target.translation_en || "(not provided)"}
+  Target explanation in Danish: ${target.short_explanation || "(not provided)"}`
+          )
+          .join("\n")
+      : "(none)";
 
   const candidatePhraseBlock = candidatePool
     .map((row) => {
@@ -296,7 +335,10 @@ export async function evaluateAndApplySpontaneousUsage({
               .join("\n")}`
           : "";
 
-      return `- Base phrase: ${row.phrase}${variantsText}`;
+      return `- phraseId: ${row.id}
+  Base phrase: ${row.phrase}
+  Meaning in English: ${row.translation_en || "(not provided)"}
+  Explanation in Danish: ${row.short_explanation || "(not provided)"}${variantsText}`;
     })
     .join("\n");
 
@@ -307,7 +349,10 @@ export async function evaluateAndApplySpontaneousUsage({
   console.log(
     "[spontaneous] candidate phrases:",
     candidatePool.map((row) => ({
+      id: row.id,
       phrase: row.phrase,
+      translation_en: row.translation_en,
+      short_explanation: row.short_explanation,
       matchingVariants: row.matchingVariants,
     }))
   );
@@ -319,8 +364,8 @@ export async function evaluateAndApplySpontaneousUsage({
         role: "system",
         content: `You silently evaluate whether a learner used saved Danish phrases spontaneously in their latest message.
 
-Current target phrases:
-${currentTargetPhrases.map((p) => `- ${p}`).join("\n") || "(none)"}
+Current target phrase meanings:
+${currentTargetBlock}
 
 Candidate non-target saved phrases and accepted stored variants:
 ${candidatePhraseBlock}
@@ -330,21 +375,23 @@ Rules:
 - accept natural inflections
 - accepted stored variants count as valid usage of their base phrase
 - natural inflected forms of accepted stored variants also count
-- ignore current target phrases
+- the same surface word may exist with different meanings; you must match by meaning, not by surface form alone
+- ignore current target phrases in their current meanings
+- if the learner uses the same surface word as a current target but with a different meaning, that may count for a non-target candidate with that different meaning
 - decide whether usage is truly spontaneous
 - copied or directly repeated material from the previous assistant message is not spontaneous
 - only include phrases that were actually used or clearly attempted
 - do not include phrases with status "unused"
-- do not return target phrases
 - only return phrases from the candidate non-target saved phrases list
-- in the "phrase" field, ALWAYS return the base phrase exactly as listed in the candidate list
-- do NOT return a variant in the "phrase" field
+- ALWAYS return the exact candidate phraseId from the list
+- in the "phrase" field, return the base phrase exactly as listed for that phraseId
 - put the exact learner wording into detectedText
 
 Return ONLY valid JSON with exactly this structure:
 {
   "spontaneousMatches": [
     {
+      "phraseId": "candidate phrase id",
       "phrase": "candidate base phrase",
       "status": "correct | almost | wrong | unused",
       "detectedText": "exact matching text from learner message or empty string",
@@ -375,6 +422,7 @@ ${trimmedMessage}`,
               items: {
                 type: "object",
                 properties: {
+                  phraseId: { type: "string" },
                   phrase: { type: "string" },
                   status: {
                     type: "string",
@@ -385,6 +433,7 @@ ${trimmedMessage}`,
                   confidence: { type: "number" },
                 },
                 required: [
+                  "phraseId",
                   "phrase",
                   "status",
                   "detectedText",
@@ -410,19 +459,19 @@ ${trimmedMessage}`,
   console.log("[spontaneous] raw model matches:", parsed.spontaneousMatches);
 
   const validMatches = parsed.spontaneousMatches.filter((match) => {
-    const normalizedPhrase = normalizeText(match.phrase);
-
-    if (currentTargets.has(normalizedPhrase)) {
+    if (!match.phraseId || !candidateMapById.has(match.phraseId)) {
       console.log(
-        "[spontaneous] skipped target returned by model:",
+        "[spontaneous] skipped phraseId not in candidate pool:",
+        match.phraseId,
         match.phrase
       );
       return false;
     }
 
-    if (!candidateMap.has(normalizedPhrase)) {
+    if (currentTargetIds.has(match.phraseId)) {
       console.log(
-        "[spontaneous] skipped phrase not in candidate pool:",
+        "[spontaneous] skipped current target returned by model:",
+        match.phraseId,
         match.phrase
       );
       return false;
@@ -463,7 +512,7 @@ ${trimmedMessage}`,
   const nowIso = new Date().toISOString();
 
   for (const match of validMatches) {
-    const row = candidateMap.get(normalizeText(match.phrase));
+    const row = candidateMapById.get(match.phraseId);
     if (!row) continue;
 
     const nextSpontaneousCorrect =
@@ -519,7 +568,13 @@ ${trimmedMessage}`,
       updatePayload.last_practiced_at = nextLastPracticedAt;
     }
 
-    console.log("[spontaneous] updating phrase:", row.phrase, updatePayload);
+    console.log(
+      "[spontaneous] updating phrase:",
+      row.id,
+      row.phrase,
+      row.translation_en,
+      updatePayload
+    );
 
     const { error: updateError } = await supabase
       .from("phrases")
@@ -534,7 +589,12 @@ ${trimmedMessage}`,
       continue;
     }
 
-    console.log("[spontaneous] updated successfully:", row.phrase);
+    console.log(
+      "[spontaneous] updated successfully:",
+      row.id,
+      row.phrase,
+      row.translation_en
+    );
   }
 
   return parsed.spontaneousMatches;
