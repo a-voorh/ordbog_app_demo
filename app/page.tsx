@@ -59,6 +59,23 @@ type LookupResult = {
   extra_info: string;
 };
 
+type MeaningOption = {
+  translation_en: string;
+  short_explanation_da: string;
+  example_da: string;
+};
+
+type MeaningDetectionResult = {
+  phrase: string;
+  options: MeaningOption[];
+};
+
+type PendingMeaningChoice = {
+  source: "draft" | "pending";
+  rawPhrase: string;
+  normalizedTags: string[];
+};
+
 type EditDraft = {
   phrase: string;
   translation_en: string;
@@ -90,12 +107,19 @@ const normalizeTag = (tag: string) => tag.trim();
 const normalizePhraseKey = (value: string) =>
   value.trim().toLowerCase().replace(/\s+/g, " ");
 
+const normalizeMeaningKey = (value?: string | null) =>
+  (value || "").trim().toLowerCase().replace(/\s+/g, " ");
+
 const sortKeyDa = (phrase: string) => phrase.trim().replace(/^at\s+/i, "");
 
-const sortByPhraseDa = <T extends { phrase: string }>(items: T[]) =>
-  [...items].sort((a, b) =>
-    sortKeyDa(a.phrase).localeCompare(sortKeyDa(b.phrase), "da")
-  );
+const sortByPhraseDa = <T extends { phrase: string; translation_en?: string }>(
+  items: T[]
+) =>
+  [...items].sort((a, b) => {
+    const phraseCompare = sortKeyDa(a.phrase).localeCompare(sortKeyDa(b.phrase), "da");
+    if (phraseCompare !== 0) return phraseCompare;
+    return (a.translation_en || "").localeCompare(b.translation_en || "", "en");
+  });
 
 function hashString(value: string) {
   let hash = 0;
@@ -197,6 +221,12 @@ export default function Home() {
   const [newPhraseToolsOpen, setNewPhraseToolsOpen] = useState(false);
   const [libraryFiltersOpen, setLibraryFiltersOpen] = useState(false);
 
+  const [meaningPickerOpen, setMeaningPickerOpen] = useState(false);
+  const [meaningPickerLoading, setMeaningPickerLoading] = useState(false);
+  const [meaningPickerError, setMeaningPickerError] = useState<string | null>(null);
+  const [meaningOptions, setMeaningOptions] = useState<MeaningOption[]>([]);
+  const [pendingMeaningChoice, setPendingMeaningChoice] = useState<PendingMeaningChoice | null>(null);
+
   const lookupInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -209,7 +239,7 @@ export default function Home() {
         .select("*")
         .order("created_at", { ascending: false });
 
-      setPendingDrafts((draftData || []) as PendingDraft[]);
+      setPendingDrafts(sortByPhraseDa((draftData || []) as PendingDraft[]));
     };
 
     void load();
@@ -396,6 +426,41 @@ export default function Home() {
     return label === "new" || label === "familiar" || (days !== null && days > 14);
   }).length;
 
+  const hasSamePhraseMeaningInCards = (phraseValue: string, translationEn: string) => {
+    const phraseKey = normalizePhraseKey(phraseValue);
+    const meaningKey = normalizeMeaningKey(translationEn);
+
+    return cards.some(
+      (card) =>
+        normalizePhraseKey(card.phrase) === phraseKey &&
+        normalizeMeaningKey(card.translation_en) === meaningKey
+    );
+  };
+
+  const hasSamePhraseMeaningInPendingDrafts = (
+    phraseValue: string,
+    translationEn: string,
+    excludeDraftId?: string
+  ) => {
+    const phraseKey = normalizePhraseKey(phraseValue);
+    const meaningKey = normalizeMeaningKey(translationEn);
+
+    return pendingDrafts.some(
+      (draft) =>
+        draft.id !== excludeDraftId &&
+        normalizePhraseKey(draft.phrase) === phraseKey &&
+        normalizeMeaningKey(draft.translation_en) === meaningKey
+    );
+  };
+
+  const resetMeaningPicker = () => {
+    setMeaningPickerOpen(false);
+    setMeaningPickerLoading(false);
+    setMeaningPickerError(null);
+    setMeaningOptions([]);
+    setPendingMeaningChoice(null);
+  };
+
   const generateUsageVariants = async (input: {
     phrase: string;
     translation_en: string;
@@ -492,9 +557,18 @@ export default function Home() {
     }
   };
 
-  const bumpRequestedAgain = async (phraseKey: string) => {
+  const bumpRequestedAgain = async (
+    phraseKey: string,
+    translationEn?: string | null
+  ) => {
+    const normalizedPhrase = normalizePhraseKey(phraseKey);
+    const normalizedMeaning = normalizeMeaningKey(translationEn);
+
     const existingCard = cards.find(
-      (card) => normalizePhraseKey(card.phrase) === phraseKey
+      (card) =>
+        normalizePhraseKey(card.phrase) === normalizedPhrase &&
+        (!translationEn ||
+          normalizeMeaningKey(card.translation_en) === normalizedMeaning)
     );
 
     if (!existingCard) return false;
@@ -542,13 +616,31 @@ export default function Home() {
     return true;
   };
 
-  const analyzePhrase = async (p: string) => {
-    const res = await fetch("/api/analyze-phrase", {
+  const detectPhraseMeanings = async (p: string) => {
+    const res = await fetch("/api/detect-phrase-meanings", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ phrase: p }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) return null;
+
+    return data as MeaningDetectionResult;
+  };
+
+  const analyzePhrase = async (p: string, translationEn?: string) => {
+    const res = await fetch("/api/analyze-phrase", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        phrase: p,
+        ...(translationEn ? { translation_en: translationEn } : {}),
+      }),
     });
 
     const data = await res.json();
@@ -609,24 +701,26 @@ export default function Home() {
 
     try {
       const correctedPhrase = lookupResult.corrected_phrase.trim();
-      const newKey = normalizePhraseKey(correctedPhrase);
+      const translationEn = lookupResult.translation_en;
 
-      const duplicateInCards = cards.some(
-        (card) => normalizePhraseKey(card.phrase) === newKey
+      const duplicateInCards = hasSamePhraseMeaningInCards(
+        correctedPhrase,
+        translationEn
       );
 
       if (duplicateInCards) {
-        await bumpRequestedAgain(newKey);
-        setLookupStatus(`Already in database: ${correctedPhrase}`);
+        await bumpRequestedAgain(correctedPhrase, translationEn);
+        setLookupStatus(`Already in database: ${correctedPhrase} (${translationEn})`);
         return;
       }
 
-      const duplicateInPendingDrafts = pendingDrafts.some(
-        (draft) => normalizePhraseKey(draft.phrase) === newKey
+      const duplicateInPendingDrafts = hasSamePhraseMeaningInPendingDrafts(
+        correctedPhrase,
+        translationEn
       );
 
       if (duplicateInPendingDrafts) {
-        setLookupStatus(`Already waiting in drafts: ${correctedPhrase}`);
+        setLookupStatus(`Already waiting in drafts: ${correctedPhrase} (${translationEn})`);
         return;
       }
 
@@ -651,7 +745,7 @@ export default function Home() {
         return;
       }
 
-      setPendingDrafts((prev) => [newDraft, ...prev]);
+      setPendingDrafts((prev) => sortByPhraseDa([newDraft, ...prev]));
       setLookupStatus(`Draft created: ${correctedPhrase}`);
     } catch (err) {
       console.error("Failed to save lookup draft:", err);
@@ -661,65 +755,176 @@ export default function Home() {
     }
   };
 
+  const createDraftCardFromAnalysis = (
+    parsed: AnalysisResult,
+    normalizedTags: string[]
+  ) => {
+    setDraftCard({
+      phrase: parsed.corrected_phrase.trim(),
+      translation_en: parsed.translation_en,
+      short_explanation: parsed.short_explanation_da,
+      example_da: parsed.example_da,
+      example_en: parsed.example_en,
+      extra_info: parsed.extra_info,
+      tags: normalizedTags,
+    });
+
+    setIsEditingDraft(false);
+    setDraftEdit(null);
+    setPhrase("");
+  };
+
+  const createPendingDraftFromAnalysis = async (
+    parsed: AnalysisResult,
+    normalizedTags: string[]
+  ) => {
+    const correctedPhrase = parsed.corrected_phrase.trim();
+    const translationEn = parsed.translation_en;
+
+    const duplicateInCards = hasSamePhraseMeaningInCards(
+      correctedPhrase,
+      translationEn
+    );
+    const duplicateInPendingDrafts = hasSamePhraseMeaningInPendingDrafts(
+      correctedPhrase,
+      translationEn
+    );
+
+    if (duplicateInCards || duplicateInPendingDrafts) {
+      if (duplicateInCards) {
+        await bumpRequestedAgain(correctedPhrase, translationEn);
+      }
+
+      alert(`This phrase already exists: ${correctedPhrase} (${translationEn})`);
+      return;
+    }
+
+    const newDraft: PendingDraft = {
+      id: crypto.randomUUID(),
+      phrase: correctedPhrase,
+      translation_en: parsed.translation_en,
+      short_explanation: parsed.short_explanation_da,
+      example_da: parsed.example_da,
+      example_en: parsed.example_en,
+      extra_info: parsed.extra_info,
+      tags: normalizedTags,
+      created_at: new Date().toISOString(),
+      source: "phrase_input",
+    };
+
+    const { error } = await supabase.from("phrase_drafts").insert(newDraft);
+
+    if (error) {
+      alert("Could not save draft.");
+      return;
+    }
+
+    setPendingDrafts((prev) => sortByPhraseDa([newDraft, ...prev]));
+    setPhrase("");
+  };
+
+  const beginMeaningChoiceFlow = async (
+    rawPhrase: string,
+    source: "draft" | "pending",
+    normalizedTags: string[]
+  ) => {
+    setMeaningPickerLoading(true);
+    setMeaningPickerError(null);
+
+    try {
+      const detected = await detectPhraseMeanings(rawPhrase);
+
+      if (!detected || !Array.isArray(detected.options) || detected.options.length === 0) {
+        const parsed = await analyzePhrase(rawPhrase);
+
+        if (!parsed) {
+          alert("Could not analyze this phrase.");
+          return;
+        }
+
+        if (source === "draft") {
+          createDraftCardFromAnalysis(parsed, normalizedTags);
+        } else {
+          await createPendingDraftFromAnalysis(parsed, normalizedTags);
+        }
+
+        return;
+      }
+
+      if (detected.options.length === 1) {
+        const chosenMeaning = detected.options[0].translation_en;
+        const parsed = await analyzePhrase(rawPhrase, chosenMeaning);
+
+        if (!parsed) {
+          alert("Could not analyze this phrase.");
+          return;
+        }
+
+        if (source === "draft") {
+          createDraftCardFromAnalysis(parsed, normalizedTags);
+        } else {
+          await createPendingDraftFromAnalysis(parsed, normalizedTags);
+        }
+
+        return;
+      }
+
+      setPendingMeaningChoice({
+        source,
+        rawPhrase,
+        normalizedTags,
+      });
+      setMeaningOptions(detected.options);
+      setMeaningPickerOpen(true);
+    } finally {
+      setMeaningPickerLoading(false);
+    }
+  };
+
+  const confirmMeaningChoice = async (option: MeaningOption) => {
+    if (!pendingMeaningChoice) return;
+
+    const { source, rawPhrase, normalizedTags } = pendingMeaningChoice;
+
+    setMeaningPickerLoading(true);
+    setMeaningPickerError(null);
+
+    try {
+      const parsed = await analyzePhrase(rawPhrase, option.translation_en);
+
+      if (!parsed) {
+        setMeaningPickerError("Could not generate the card for that meaning.");
+        return;
+      }
+
+      resetMeaningPicker();
+
+      if (source === "draft") {
+        createDraftCardFromAnalysis(parsed, normalizedTags);
+      } else {
+        await createPendingDraftFromAnalysis(parsed, normalizedTags);
+      }
+    } finally {
+      setMeaningPickerLoading(false);
+    }
+  };
+
+  const closeMeaningPicker = () => {
+    if (meaningPickerLoading) return;
+    resetMeaningPicker();
+  };
+
   const createPendingDraftFromPhrase = async () => {
     if (!phrase.trim()) return;
 
     setSavingPhraseToPendingDraft(true);
 
     try {
-      const parsed = await analyzePhrase(phrase.trim());
-
-      if (!parsed) {
-        alert("Could not analyze this phrase.");
-        return;
-      }
-
-      const correctedPhrase = parsed.corrected_phrase.trim();
-      const newKey = normalizePhraseKey(correctedPhrase);
-
-      const duplicateInCards = cards.some(
-        (card) => normalizePhraseKey(card.phrase) === newKey
-      );
-
-      const duplicateInPendingDrafts = pendingDrafts.some(
-        (draft) => normalizePhraseKey(draft.phrase) === newKey
-      );
-
-      if (duplicateInCards || duplicateInPendingDrafts) {
-        if (duplicateInCards) {
-          await bumpRequestedAgain(newKey);
-        }
-
-        alert(`This phrase already exists: ${correctedPhrase}`);
-        return;
-      }
-
       const normalizedTags = Array.from(
         new Set(selectedTags.map(normalizeTag).filter(Boolean))
       );
 
-      const newDraft: PendingDraft = {
-        id: crypto.randomUUID(),
-        phrase: correctedPhrase,
-        translation_en: parsed.translation_en,
-        short_explanation: parsed.short_explanation_da,
-        example_da: parsed.example_da,
-        example_en: parsed.example_en,
-        extra_info: parsed.extra_info,
-        tags: normalizedTags,
-        created_at: new Date().toISOString(),
-        source: "phrase_input",
-      };
-
-      const { error } = await supabase.from("phrase_drafts").insert(newDraft);
-
-      if (error) {
-        alert("Could not save draft.");
-        return;
-      }
-
-      setPendingDrafts((prev) => [newDraft, ...prev]);
-      setPhrase("");
+      await beginMeaningChoiceFlow(phrase.trim(), "pending", normalizedTags);
     } finally {
       setSavingPhraseToPendingDraft(false);
     }
@@ -764,66 +969,30 @@ export default function Home() {
 
     setLoading(true);
 
-    const parsed = await analyzePhrase(phrase.trim());
+    try {
+      const normalizedTags = Array.from(
+        new Set(selectedTags.map(normalizeTag).filter(Boolean))
+      );
 
-    if (!parsed) {
+      await beginMeaningChoiceFlow(phrase.trim(), "draft", normalizedTags);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const correctedPhrase = parsed.corrected_phrase.trim();
-    const newKey = normalizePhraseKey(correctedPhrase);
-
-    const duplicateInCards = cards.some(
-      (card) => normalizePhraseKey(card.phrase) === newKey
-    );
-
-    const duplicateInPendingDrafts = pendingDrafts.some(
-      (draft) => normalizePhraseKey(draft.phrase) === newKey
-    );
-
-    if (duplicateInCards || duplicateInPendingDrafts) {
-      if (duplicateInCards) {
-        await bumpRequestedAgain(newKey);
-      }
-
-      setLoading(false);
-      alert(`This phrase already exists: ${correctedPhrase}`);
-      return;
-    }
-
-    const normalizedTags = Array.from(
-      new Set(selectedTags.map(normalizeTag).filter(Boolean))
-    );
-
-    setDraftCard({
-      phrase: correctedPhrase,
-      translation_en: parsed.translation_en,
-      short_explanation: parsed.short_explanation_da,
-      example_da: parsed.example_da,
-      example_en: parsed.example_en,
-      extra_info: parsed.extra_info,
-      tags: normalizedTags,
-    });
-
-    setIsEditingDraft(false);
-    setDraftEdit(null);
-    setPhrase("");
-    setLoading(false);
   };
 
   const saveDraftToDatabase = async () => {
     if (!draftCard) return;
 
     const normalizedPhrase = draftCard.phrase.trim();
-    const newKey = normalizePhraseKey(normalizedPhrase);
+    const translationEn = draftCard.translation_en;
 
-    const duplicate = cards.some(
-      (card) => normalizePhraseKey(card.phrase) === newKey
+    const duplicate = hasSamePhraseMeaningInCards(
+      normalizedPhrase,
+      translationEn
     );
 
     if (duplicate) {
-      alert(`This phrase already exists: ${normalizedPhrase}`);
+      alert(`This phrase already exists: ${normalizedPhrase} (${translationEn})`);
       return;
     }
 
@@ -924,18 +1093,20 @@ export default function Home() {
   const refreshDraftAnalysis = async () => {
     if (!draftCard) return;
 
-    const parsed = await analyzePhrase(draftCard.phrase);
+    const parsed = await analyzePhrase(draftCard.phrase, draftCard.translation_en);
     if (!parsed) return;
 
     const refreshedPhrase = parsed.corrected_phrase.trim();
-    const newKey = normalizePhraseKey(refreshedPhrase);
 
-    const duplicate = cards.some(
-      (card) => normalizePhraseKey(card.phrase) === newKey
+    const duplicate = hasSamePhraseMeaningInCards(
+      refreshedPhrase,
+      parsed.translation_en
     );
 
     if (duplicate) {
-      alert(`Cannot refresh because this phrase already exists: ${refreshedPhrase}`);
+      alert(
+        `Cannot refresh because this phrase already exists: ${refreshedPhrase} (${parsed.translation_en})`
+      );
       return;
     }
 
@@ -1032,7 +1203,7 @@ export default function Home() {
     }
 
     setPendingDrafts((prev) =>
-      prev.map((d) => (d.id === draftId ? { ...d, tags: normalized } : d))
+      sortByPhraseDa(prev.map((d) => (d.id === draftId ? { ...d, tags: normalized } : d)))
     );
   };
 
@@ -1154,16 +1325,15 @@ export default function Home() {
   const saveEdit = async (id: string) => {
     if (!editDraft) return;
 
-    const normalizedEditedPhrase = normalizePhraseKey(editDraft.phrase);
-
     const duplicate = cards.some(
       (card) =>
         card.id !== id &&
-        normalizePhraseKey(card.phrase) === normalizedEditedPhrase
+        normalizePhraseKey(card.phrase) === normalizePhraseKey(editDraft.phrase) &&
+        normalizeMeaningKey(card.translation_en) === normalizeMeaningKey(editDraft.translation_en)
     );
 
     if (duplicate) {
-      alert(`This phrase already exists: ${editDraft.phrase.trim()}`);
+      alert(`This phrase already exists: ${editDraft.phrase.trim()} (${editDraft.translation_en})`);
       return;
     }
 
@@ -1207,25 +1377,28 @@ export default function Home() {
   const savePendingDraftEdit = async (draftId: string) => {
     if (!pendingDraftEdit) return;
 
-    const normalizedEditedPhrase = normalizePhraseKey(pendingDraftEdit.phrase);
-
-    const duplicateInCards = cards.some(
-      (card) => normalizePhraseKey(card.phrase) === normalizedEditedPhrase
+    const duplicateInCards = hasSamePhraseMeaningInCards(
+      pendingDraftEdit.phrase,
+      pendingDraftEdit.translation_en
     );
 
     if (duplicateInCards) {
-      alert(`This phrase already exists in the database: ${pendingDraftEdit.phrase.trim()}`);
+      alert(
+        `This phrase already exists in the database: ${pendingDraftEdit.phrase.trim()} (${pendingDraftEdit.translation_en})`
+      );
       return;
     }
 
-    const duplicateInDrafts = pendingDrafts.some(
-      (draft) =>
-        draft.id !== draftId &&
-        normalizePhraseKey(draft.phrase) === normalizedEditedPhrase
+    const duplicateInDrafts = hasSamePhraseMeaningInPendingDrafts(
+      pendingDraftEdit.phrase,
+      pendingDraftEdit.translation_en,
+      draftId
     );
 
     if (duplicateInDrafts) {
-      alert(`This draft already exists: ${pendingDraftEdit.phrase.trim()}`);
+      alert(
+        `This draft already exists: ${pendingDraftEdit.phrase.trim()} (${pendingDraftEdit.translation_en})`
+      );
       return;
     }
 
@@ -1249,7 +1422,7 @@ export default function Home() {
     }
 
     setPendingDrafts((prev) =>
-      prev.map((d) => (d.id === draftId ? { ...d, ...updates } : d))
+      sortByPhraseDa(prev.map((d) => (d.id === draftId ? { ...d, ...updates } : d)))
     );
 
     setEditingPendingDraftId(null);
@@ -1257,20 +1430,22 @@ export default function Home() {
   };
 
   const refreshAnalysis = async (card: PhraseCard) => {
-    const parsed = await analyzePhrase(card.phrase);
+    const parsed = await analyzePhrase(card.phrase, card.translation_en);
     if (!parsed) return;
 
     const refreshedPhrase = parsed.corrected_phrase.trim();
-    const newKey = normalizePhraseKey(refreshedPhrase);
 
     const duplicate = cards.some(
       (other) =>
         other.id !== card.id &&
-        normalizePhraseKey(other.phrase) === newKey
+        normalizePhraseKey(other.phrase) === normalizePhraseKey(refreshedPhrase) &&
+        normalizeMeaningKey(other.translation_en) === normalizeMeaningKey(parsed.translation_en)
     );
 
     if (duplicate) {
-      alert(`Cannot refresh because this would duplicate: ${refreshedPhrase}`);
+      alert(
+        `Cannot refresh because this would duplicate: ${refreshedPhrase} (${parsed.translation_en})`
+      );
       return;
     }
 
@@ -1307,29 +1482,34 @@ export default function Home() {
   };
 
   const refreshPendingDraftAnalysis = async (draft: PendingDraft) => {
-    const parsed = await analyzePhrase(draft.phrase);
+    const parsed = await analyzePhrase(draft.phrase, draft.translation_en);
     if (!parsed) return;
 
     const refreshedPhrase = parsed.corrected_phrase.trim();
-    const newKey = normalizePhraseKey(refreshedPhrase);
 
-    const duplicateInCards = cards.some(
-      (card) => normalizePhraseKey(card.phrase) === newKey
+    const duplicateInCards = hasSamePhraseMeaningInCards(
+      refreshedPhrase,
+      parsed.translation_en
     );
 
     if (duplicateInCards) {
-      alert(`Cannot refresh because this phrase already exists: ${refreshedPhrase}`);
+      alert(
+        `Cannot refresh because this phrase already exists: ${refreshedPhrase} (${parsed.translation_en})`
+      );
       return;
     }
 
     const duplicateInDrafts = pendingDrafts.some(
       (other) =>
         other.id !== draft.id &&
-        normalizePhraseKey(other.phrase) === newKey
+        normalizePhraseKey(other.phrase) === normalizePhraseKey(refreshedPhrase) &&
+        normalizeMeaningKey(other.translation_en) === normalizeMeaningKey(parsed.translation_en)
     );
 
     if (duplicateInDrafts) {
-      alert(`Cannot refresh because another draft already exists: ${refreshedPhrase}`);
+      alert(
+        `Cannot refresh because another draft already exists: ${refreshedPhrase} (${parsed.translation_en})`
+      );
       return;
     }
 
@@ -1353,19 +1533,18 @@ export default function Home() {
     }
 
     setPendingDrafts((prev) =>
-      prev.map((d) => (d.id === draft.id ? { ...d, ...updates } : d))
+      sortByPhraseDa(prev.map((d) => (d.id === draft.id ? { ...d, ...updates } : d)))
     );
   };
 
   const savePendingDraftToDatabase = async (draft: PendingDraft) => {
-    const newKey = normalizePhraseKey(draft.phrase);
-
-    const duplicateInCards = cards.some(
-      (card) => normalizePhraseKey(card.phrase) === newKey
+    const duplicateInCards = hasSamePhraseMeaningInCards(
+      draft.phrase,
+      draft.translation_en
     );
 
     if (duplicateInCards) {
-      alert(`This phrase already exists in the database: ${draft.phrase}`);
+      alert(`This phrase already exists in the database: ${draft.phrase} (${draft.translation_en})`);
       return;
     }
 
@@ -1506,7 +1685,7 @@ export default function Home() {
     }
 
     setCards(sortByPhraseDa(updatedCards));
-    setPendingDrafts(updatedPendingDrafts);
+    setPendingDrafts(sortByPhraseDa(updatedPendingDrafts));
 
     if (analysis && analysis.tags.includes(from)) {
       setAnalysis({
@@ -1601,7 +1780,7 @@ export default function Home() {
   const visibleFilterTags = showAllFilterTags ? allTags : allTags.slice(0, 4);
   const visibleDraftTags = showAllDraftTags ? allTags : allTags.slice(0, 4);
 
-  return (
+ return (
   <main className="app-page">
     <div
       style={{
@@ -1714,7 +1893,7 @@ export default function Home() {
               alignItems: "center",
               justifyContent: "center",
             }}
-            disabled={loading || savingPhraseToPendingDraft}
+            disabled={loading || savingPhraseToPendingDraft || meaningPickerLoading}
           >
             {loading ? "Analyzing..." : "Analyze"}
           </button>
@@ -1731,7 +1910,7 @@ export default function Home() {
               alignItems: "center",
               justifyContent: "center",
             }}
-            disabled={loading || savingPhraseToPendingDraft}
+            disabled={loading || savingPhraseToPendingDraft || meaningPickerLoading}
           >
             {savingPhraseToPendingDraft ? "Saving..." : "Create draft"}
           </button>
@@ -2236,19 +2415,19 @@ export default function Home() {
                       marginBottom: 12,
                     }}
                   >
-                      <input
-                        value={inlineTagInputByPendingDraft[draft.id] || ""}
-                        onChange={(e) =>
-                          setInlineTagInputByPendingDraft((prev) => ({
-                            ...prev,
-                            [draft.id]: e.target.value,
-                          }))
-                        }
-                        onKeyDown={(e) => void handleInlinePendingDraftTagKeyDown(e, draft)}
-                        placeholder="New tag..."
-                        className="text-input"
-                        style={{ width: "100%", maxWidth: 160 }}
-                      />
+                    <input
+                      value={inlineTagInputByPendingDraft[draft.id] || ""}
+                      onChange={(e) =>
+                        setInlineTagInputByPendingDraft((prev) => ({
+                          ...prev,
+                          [draft.id]: e.target.value,
+                        }))
+                      }
+                      onKeyDown={(e) => void handleInlinePendingDraftTagKeyDown(e, draft)}
+                      placeholder="New tag..."
+                      className="text-input"
+                      style={{ width: "100%", maxWidth: 160 }}
+                    />
 
                     {visibleInlinePickerTags.map((tag) => {
                       const selectedOnDraft = draft.tags.includes(tag);
@@ -2952,6 +3131,123 @@ export default function Home() {
         );
       })}
     </div>
+
+    {meaningPickerOpen && (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15, 23, 42, 0.45)",
+          zIndex: 200,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16,
+        }}
+        onClick={closeMeaningPicker}
+      >
+        <div
+          className="card"
+          style={{
+            width: "100%",
+            maxWidth: 760,
+            maxHeight: "85vh",
+            overflowY: "auto",
+            margin: 0,
+            padding: 20,
+            boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: 12,
+              marginBottom: 14,
+            }}
+          >
+            <div>
+              <h2 className="section-title" style={{ marginBottom: 6 }}>
+                Which meaning did you mean?
+              </h2>
+              <div className="meta-text">
+                The phrase seems to have more than one possible meaning. Choose the one you want for this card.
+              </div>
+            </div>
+
+            <button
+              onClick={closeMeaningPicker}
+              className="button-secondary"
+              disabled={meaningPickerLoading}
+            >
+              Close
+            </button>
+          </div>
+
+          {pendingMeaningChoice && (
+            <div
+              className="mini-box"
+              style={{ marginBottom: 14, background: "#f8fafc" }}
+            >
+              <div><b>Phrase:</b> {pendingMeaningChoice.rawPhrase}</div>
+            </div>
+          )}
+
+          {meaningPickerError && (
+            <div
+              className="mini-box"
+              style={{
+                marginBottom: 14,
+                background: "#fef2f2",
+                border: "1px solid #fecaca",
+                color: "#991b1b",
+              }}
+            >
+              {meaningPickerError}
+            </div>
+          )}
+
+          <div style={{ display: "grid", gap: 12 }}>
+            {meaningOptions.map((option, index) => (
+              <div
+                key={`${option.translation_en}-${index}`}
+                className="mini-box"
+                style={{
+                  margin: 0,
+                  padding: 14,
+                  border: "1px solid #e5e7eb",
+                }}
+              >
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>
+                    {option.translation_en}
+                  </div>
+                  <div className="meta-text" style={{ marginTop: 4 }}>
+                    {option.short_explanation_da}
+                  </div>
+                </div>
+
+                {option.example_da && (
+                  <div style={{ marginBottom: 10, fontSize: 14, color: "#374151" }}>
+                    <b>Example:</b> {option.example_da}
+                  </div>
+                )}
+
+                <button
+                  onClick={() => void confirmMeaningChoice(option)}
+                  className="button-primary"
+                  disabled={meaningPickerLoading}
+                >
+                  {meaningPickerLoading ? "Generating..." : "Choose this meaning"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
   </main>
 );
 }

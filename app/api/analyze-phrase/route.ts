@@ -7,11 +7,31 @@ export async function POST(req: Request) {
     });
 
     const body = await req.json();
-    const phrase = body.phrase;
+    const phrase = typeof body.phrase === "string" ? body.phrase.trim() : "";
+    const translationEn =
+      typeof body.translation_en === "string"
+        ? body.translation_en.trim()
+        : "";
 
-    if (!phrase || typeof phrase !== "string") {
+    if (!phrase) {
       return Response.json({ error: "Missing phrase" }, { status: 400 });
     }
+
+    const meaningInstruction = translationEn
+      ? `Important meaning constraint:
+The intended English meaning of this phrase is: "${translationEn}".
+
+You MUST generate the card for this meaning only.
+Do NOT switch to another meaning of the same Danish word or phrase.
+All fields must match this intended meaning:
+- translation_en
+- short_explanation_da
+- example_da
+- example_en
+- extra_info
+
+If the Danish phrase is ambiguous, keep the Danish surface form if possible, but make sure the explanation and example clearly match the intended meaning.`
+      : `If the phrase has multiple meanings, choose the most common useful learner meaning.`;
 
     const response = await client.responses.create({
       model: "gpt-4.1-mini",
@@ -38,6 +58,8 @@ Important:
 - Return ONLY valid JSON.
 - Do not comment on spelling unless the correction changes the meaning of the phrase.
 
+${meaningInstruction}
+
 Rules for "extra_info":
 - If the phrase is primarily a verb or verbal expression, give short conjugation info in Danish.
   Example format:
@@ -48,11 +70,15 @@ Rules for "extra_info":
   "adverbium", "adjektiv", "fast udtryk", "pronomen"
 - Keep extra_info short.
 - If no useful extra info is available, return an empty string.
-- For reflexive verbs or fixed verbal expressions, keep the info practical and natural for a learner.`
+- For reflexive verbs or fixed verbal expressions, keep the info practical and natural for a learner.`,
         },
         {
           role: "user",
-          content: `Analyze this phrase: "${phrase}"
+          content: translationEn
+            ? `Analyze this Danish phrase: "${phrase}"
+
+The intended English meaning is:
+"${translationEn}"
 
 Return JSON with exactly this structure:
 {
@@ -63,7 +89,18 @@ Return JSON with exactly this structure:
   "example_en": "...",
   "extra_info": "..."
 }`
-        }
+            : `Analyze this phrase: "${phrase}"
+
+Return JSON with exactly this structure:
+{
+  "corrected_phrase": "...",
+  "translation_en": "...",
+  "short_explanation_da": "...",
+  "example_da": "...",
+  "example_en": "...",
+  "extra_info": "..."
+}`,
+        },
       ],
       text: {
         format: {
@@ -77,7 +114,7 @@ Return JSON with exactly this structure:
               short_explanation_da: { type: "string" },
               example_da: { type: "string" },
               example_en: { type: "string" },
-              extra_info: { type: "string" }
+              extra_info: { type: "string" },
             },
             required: [
               "corrected_phrase",
@@ -85,12 +122,12 @@ Return JSON with exactly this structure:
               "short_explanation_da",
               "example_da",
               "example_en",
-              "extra_info"
+              "extra_info",
             ],
-            additionalProperties: false
-          }
-        }
-      }
+            additionalProperties: false,
+          },
+        },
+      },
     });
 
     const text = response.output_text ?? "";
@@ -102,7 +139,7 @@ Return JSON with exactly this structure:
     return Response.json(
       {
         error: "Failed",
-        message: error?.message ?? "Unknown error"
+        message: error?.message ?? "Unknown error",
       },
       { status: 500 }
     );
