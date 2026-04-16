@@ -66,7 +66,7 @@ const LARGE_DB_FIRST_TURN_CAP = 120;
 const LARGE_DB_LATER_TURN_CAP = 60;
 const SPONTANEOUS_MASTERY_BONUS_MIN_ATTEMPTS = 1;
 const SPONTANEOUS_MASTERY_BONUS_MAX_ATTEMPTS = 3;
-const MIN_CONFIDENCE = 0.75;
+const MIN_CONFIDENCE = 0.6;
 
 const normalizeText = (value: string) =>
   value
@@ -387,6 +387,15 @@ Rules:
 - in the "phrase" field, return the base phrase exactly as listed for that phraseId
 - put the exact learner wording into detectedText
 
+Confidence rules:
+- 1.0 = very clear, exact match of the phrase or variant
+- 0.9 = clear match with minor variation
+- 0.8 = likely correct usage but slightly uncertain
+- below 0.6 = uncertain or weak match
+
+You MUST assign a realistic confidence score.
+Do NOT output 0 unless there is truly no confidence.
+
 Return ONLY valid JSON with exactly this structure:
 {
   "spontaneousMatches": [
@@ -485,14 +494,9 @@ ${trimmedMessage}`,
       return false;
     }
 
-    if (match.confidence < MIN_CONFIDENCE) {
-      console.log(
-        "[spontaneous] skipped low-confidence match:",
-        match.phrase,
-        match.confidence
-      );
-      return false;
-    }
+    if (typeof match.confidence === "number" && match.confidence < MIN_CONFIDENCE) {
+  return false;
+}
 
     if (match.status === "unused") {
       console.log("[spontaneous] skipped unused match:", match.phrase);

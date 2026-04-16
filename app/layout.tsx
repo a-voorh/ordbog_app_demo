@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "📚 Arinas ordforråd",
+  title: "📚 mit ordforråd",
   description: "Dansk ordforrådstræner",
 };
 
