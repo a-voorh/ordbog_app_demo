@@ -840,9 +840,13 @@ export default function PracticePage() {
     );
     setSelectedCards(newSelection);
 
-    setPracticeMode("chat_only");
-    setPracticeStage("chat");
-    await startPractice(newSelection);
+    resetSessionUi();
+    setPracticeMode(null);
+    setMeaningPairs([]);
+    setMeaningOptions([]);
+    setSelectedMeaningByPhraseId({});
+    setActiveMeaningPhraseId(null);
+    setPracticeStage("preview");
   };
 
   const getFeedbackStatusMap = (feedback: PhraseFeedback[]) => {
