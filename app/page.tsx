@@ -1043,9 +1043,10 @@ export default function Home() {
     const { error } = await supabase.from("phrases").insert(newCard);
 
     if (error) {
-      alert("Could not save the phrase. It may already exist.");
-      return;
-    }
+  console.error("Save phrase error:", error);
+  alert(`Could not save the phrase: ${error.message}`);
+  return;
+}
 
     await replaceUsageVariantsForPhrase(newCard.id, {
       phrase: newCard.phrase,
@@ -1588,9 +1589,10 @@ export default function Home() {
     const { error: insertError } = await supabase.from("phrases").insert(newCard);
 
     if (insertError) {
-      alert("Could not save draft to database.");
-      return;
-    }
+  console.error("Save pending draft error:", insertError);
+  alert(`Could not save draft to database: ${insertError.message}`);
+  return;
+}
 
     await replaceUsageVariantsForPhrase(newCard.id, {
       phrase: newCard.phrase,
