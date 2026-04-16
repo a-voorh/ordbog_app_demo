@@ -47,6 +47,7 @@ type Message = {
 };
 
 type PhraseFeedback = {
+  phraseId: string;
   phrase: string;
   status: "correct" | "almost" | "wrong" | "unused";
   comment: string;
@@ -139,14 +140,14 @@ export default function PracticePage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [lastPhraseFeedback, setLastPhraseFeedback] = useState<PhraseFeedback[]>([]);
-  const [usedPhraseSet, setUsedPhraseSet] = useState<string[]>([]);
+  const [usedPhraseIds, setUsedPhraseIds] = useState<string[]>([]);
 
   const [addFromMessageIndex, setAddFromMessageIndex] = useState<number | null>(null);
   const [candidatePhrase, setCandidatePhrase] = useState("");
   const [addingPhrase, setAddingPhrase] = useState(false);
   const [addPhraseStatus, setAddPhraseStatus] = useState<string | null>(null);
 
-  const [addFromFeedbackPhrase, setAddFromFeedbackPhrase] = useState<string | null>(null);
+  const [addFromFeedbackPhraseId, setAddFromFeedbackPhraseId] = useState<string | null>(null);
   const [candidateFeedbackPhrase, setCandidateFeedbackPhrase] = useState("");
 
   const [hoveredPhraseId, setHoveredPhraseId] = useState<string | null>(null);
@@ -692,14 +693,6 @@ export default function PracticePage() {
         }
       })
     );
-
-    setSelectedCards((prevSelected) => {
-      const nextById = new Map(
-        updatedCards.map((card) => [card.id, card] as const)
-      );
-
-      return prevSelected.map((card) => nextById.get(card.id) ?? card);
-    });
   };
 
   useEffect(() => {
@@ -764,13 +757,13 @@ export default function PracticePage() {
   const resetSessionUi = () => {
     setMessages([]);
     setLastPhraseFeedback([]);
-    setUsedPhraseSet([]);
+    setUsedPhraseIds([]);
     setInput("");
     setAddFromMessageIndex(null);
     setCandidatePhrase("");
     setAddPhraseStatus(null);
     setAddingPhrase(false);
-    setAddFromFeedbackPhrase(null);
+    setAddFromFeedbackPhraseId(null);
     setCandidateFeedbackPhrase("");
     setMessageTranslations({});
     setShowTranslationByMessage({});
@@ -898,7 +891,7 @@ export default function PracticePage() {
   const getFeedbackStatusMap = (feedback: PhraseFeedback[]) => {
     const map = new Map<string, PhraseFeedback["status"]>();
     for (const item of feedback) {
-      map.set(item.phrase, item.status);
+      map.set(item.phraseId, item.status);
     }
     return map;
   };
@@ -921,7 +914,7 @@ export default function PracticePage() {
     const oldStatusMap = getFeedbackStatusMap(oldFeedback);
 
     return newFeedback.map((item) => {
-      const oldStatus = oldStatusMap.get(item.phrase) ?? "unused";
+      const oldStatus = oldStatusMap.get(item.phraseId) ?? "unused";
 
       if (item.status === "correct" && (oldStatus === "wrong" || oldStatus === "almost")) {
         const retryNote = "Correct on retry — counted as almost for stats.";
@@ -946,8 +939,8 @@ export default function PracticePage() {
     const newStatusMap = getFeedbackStatusMap(newFeedback);
 
     return prevCards.map((card) => {
-      const oldStatus = oldStatusMap.get(card.phrase) ?? "unused";
-      const rawNewStatus = newStatusMap.get(card.phrase) ?? "unused";
+      const oldStatus = oldStatusMap.get(card.id) ?? "unused";
+      const rawNewStatus = newStatusMap.get(card.id) ?? "unused";
       const newCountedStatus = getCountedRetryStatus(oldStatus, rawNewStatus);
 
       const oldAttempted = oldStatus !== "unused" ? 1 : 0;
@@ -1012,7 +1005,7 @@ export default function PracticePage() {
     setAddFromMessageIndex(null);
     setCandidatePhrase("");
     setAddPhraseStatus(null);
-    setAddFromFeedbackPhrase(null);
+    setAddFromFeedbackPhraseId(null);
     setCandidateFeedbackPhrase("");
     setSecondOpinionNote(null);
 
@@ -1050,11 +1043,11 @@ export default function PracticePage() {
 
       setLastPhraseFeedback(feedbackForDisplay);
 
-      const correctlyUsed = feedbackForDisplay
+      const correctlyUsedIds = feedbackForDisplay
         .filter((item) => item.status === "correct")
-        .map((item) => item.phrase);
+        .map((item) => item.phraseId);
 
-      setUsedPhraseSet((prev) => Array.from(new Set([...prev, ...correctlyUsed])));
+      setUsedPhraseIds((prev) => Array.from(new Set([...prev, ...correctlyUsedIds])));
 
       if (feedbackForDisplay.some((item) => item.status !== "unused")) {
         setFeedbackOpen(true);
@@ -1070,10 +1063,10 @@ export default function PracticePage() {
       } else {
         void applyCardUpdates((prevCards) =>
           prevCards.map((card) => {
-            const item = rawFeedback.find((f) => f.phrase === card.phrase);
+            const item = rawFeedback.find((f) => f.phraseId === card.id);
             if (!item || item.status === "unused") return card;
 
-            const isTarget = selectedCards.some((c) => c.phrase === card.phrase);
+            const isTarget = selectedCards.some((c) => c.id === card.id);
             const isSpontaneous = !isTarget;
 
             const updated: PhraseCard = {
@@ -1159,7 +1152,7 @@ export default function PracticePage() {
     setAddFromMessageIndex(null);
     setCandidatePhrase("");
     setAddPhraseStatus(null);
-    setAddFromFeedbackPhrase(null);
+    setAddFromFeedbackPhraseId(null);
     setCandidateFeedbackPhrase("");
     setSecondOpinionNote(null);
 
@@ -1221,23 +1214,23 @@ export default function PracticePage() {
         const revisedCorrectSet = new Set(
           displayFeedback
             .filter((item) => item.status === "correct")
-            .map((item) => item.phrase)
+            .map((item) => item.phraseId)
         );
 
-        const revisedMentionedPhrases = new Set(
+        const revisedMentionedPhraseIds = new Set(
           displayFeedback
             .filter((item) => item.status !== "unused")
-            .map((item) => item.phrase)
+            .map((item) => item.phraseId)
         );
 
-        setUsedPhraseSet((prev) => {
+        setUsedPhraseIds((prev) => {
           const next = new Set(prev);
 
-          for (const phrase of revisedMentionedPhrases) {
-            if (revisedCorrectSet.has(phrase)) {
-              next.add(phrase);
+          for (const phraseId of revisedMentionedPhraseIds) {
+            if (revisedCorrectSet.has(phraseId)) {
+              next.add(phraseId);
             } else {
-              next.delete(phrase);
+              next.delete(phraseId);
             }
           }
 
@@ -1276,7 +1269,7 @@ export default function PracticePage() {
     setAddFromMessageIndex(null);
     setCandidatePhrase("");
     setAddPhraseStatus(null);
-    setAddFromFeedbackPhrase(null);
+    setAddFromFeedbackPhraseId(null);
     setCandidateFeedbackPhrase("");
     setSecondOpinionNote(null);
 
@@ -1505,7 +1498,7 @@ export default function PracticePage() {
       }
 
       setCandidateFeedbackPhrase("");
-      setAddFromFeedbackPhrase(null);
+      setAddFromFeedbackPhraseId(null);
       setAddPhraseStatus(null);
 
       setDraftSavedMessage(`Draft created: ${correctedPhrase}`);
@@ -1555,12 +1548,12 @@ export default function PracticePage() {
 
   const allPhrasesUsed =
     selectedCards.length > 0 &&
-    selectedCards.every((card) => usedPhraseSet.includes(card.phrase));
+    selectedCards.every((card) => usedPhraseIds.includes(card.id));
 
-  const getPhraseStatusSymbol = (phrase: string) => {
-    const latest = lastPhraseFeedback.find((item) => item.phrase === phrase);
+  const getPhraseStatusSymbol = (phraseId: string) => {
+    const latest = lastPhraseFeedback.find((item) => item.phraseId === phraseId);
 
-    if (usedPhraseSet.includes(phrase)) return "✓";
+    if (usedPhraseIds.includes(phraseId)) return "✓";
     if (latest?.status === "almost") return "~";
     if (latest?.status === "wrong") return "✗";
     return "○";
@@ -2112,7 +2105,7 @@ export default function PracticePage() {
                         gap: 6,
                         padding: "4px 8px",
                         borderRadius: 999,
-                        background: usedPhraseSet.includes(card.phrase)
+                        background: usedPhraseIds.includes(card.id)
                           ? "#dcfce7"
                           : "#f3f4f6",
                         fontSize: 13,
@@ -2154,7 +2147,7 @@ export default function PracticePage() {
                         setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
                       }
                     >
-                      <span>{getPhraseStatusSymbol(card.phrase)}</span>
+                      <span>{getPhraseStatusSymbol(card.id)}</span>
 
                       <span style={{ fontWeight: 500 }}>
                         {card.phrase}
@@ -2198,7 +2191,7 @@ export default function PracticePage() {
 
               {selectedCards.length > 0 && (
                 <div className="badge badge-neutral">
-                  Progress: {usedPhraseSet.length} / {selectedCards.length} phrases used correctly
+                  Progress: {usedPhraseIds.length} / {selectedCards.length} phrases used correctly
                 </div>
               )}
             </>
@@ -2250,7 +2243,7 @@ export default function PracticePage() {
                     : messages.length > 0
                       ? "Restart practice"
                       : "Start practice"}
-                  </button>
+                </button>
               )}
             </div>
           </div>
@@ -2523,7 +2516,7 @@ export default function PracticePage() {
             {lastPhraseFeedback
               .filter((item) => item.status !== "unused")
               .map((item) => (
-                <li key={item.phrase} style={{ marginBottom: 12 }}>
+                <li key={item.phraseId} style={{ marginBottom: 12 }}>
                   {item.status === "correct" && "✓"}
                   {item.status === "almost" && "~"}
                   {item.status === "wrong" && "✗"}{" "}
@@ -2554,7 +2547,7 @@ export default function PracticePage() {
                           onClick={() => {
                             const selectedText =
                               window.getSelection?.()?.toString().trim() || "";
-                            setAddFromFeedbackPhrase(item.phrase);
+                            setAddFromFeedbackPhraseId(item.phraseId);
                             setCandidateFeedbackPhrase(
                               selectedText || item.correctedSentence
                             );
@@ -2565,7 +2558,7 @@ export default function PracticePage() {
                         </button>
                       </div>
 
-                      {addFromFeedbackPhrase === item.phrase && (
+                      {addFromFeedbackPhraseId === item.phraseId && (
                         <div className="mini-box" style={{ marginTop: 8 }}>
                           <div className="meta-text" style={{ marginBottom: 8 }}>
                             Select text from the corrected sentence above, or edit it here.
@@ -2602,7 +2595,7 @@ export default function PracticePage() {
 
                             <button
                               onClick={() => {
-                                setAddFromFeedbackPhrase(null);
+                                setAddFromFeedbackPhraseId(null);
                                 setCandidateFeedbackPhrase("");
                                 setAddPhraseStatus(null);
                               }}

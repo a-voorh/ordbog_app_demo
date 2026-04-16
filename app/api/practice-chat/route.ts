@@ -7,9 +7,11 @@ type ChatMessage = {
   content: string;
 };
 
-type PhraseCard = {
+type IncomingPhraseCard = {
   id: string;
   phrase: string;
+  translation_en?: string | null;
+  short_explanation?: string | null;
 };
 
 type VariantRow = {
@@ -21,10 +23,13 @@ type VariantRow = {
 type PhraseWithVariants = {
   id: string;
   phrase: string;
+  translation_en: string;
+  short_explanation: string;
   matchingVariants: string[];
 };
 
 type PhraseFeedbackItem = {
+  phraseId: string;
   phrase: string;
   status: "correct" | "almost" | "wrong" | "unused";
   comment: string;
@@ -114,12 +119,21 @@ const assistantBreaksRole = (reply: string) => {
   );
 };
 
-const buildSinglePhrasePrompt = (
-  phrase: string,
-  acceptedVariants: string[]
-) => {
+const buildSinglePhrasePrompt = ({
+  phrase,
+  translationEn,
+  shortExplanation,
+  acceptedVariants,
+}: {
+  phrase: string;
+  translationEn: string;
+  shortExplanation: string;
+  acceptedVariants: string[];
+}) => {
   const targetPhraseBlock = [
     `Base phrase: ${phrase}`,
+    `Target meaning in English: ${translationEn || "(not provided)"}`,
+    `Target explanation in Danish: ${shortExplanation || "(not provided)"}`,
     acceptedVariants.length > 0
       ? `Accepted stored variants:\n${acceptedVariants
           .map((v) => `- ${v}`)
@@ -139,9 +153,13 @@ You must inspect:
 Do NOT consider earlier conversation history beyond the previous assistant message.
 
 IMPORTANT:
-You are evaluating ONLY this one target phrase.
-Your task is NOT to evaluate all target phrases at once.
-Be exhaustive about THIS phrase only.
+You are evaluating ONLY this one target phrase and ONLY this one meaning.
+The same surface word may exist in Danish with other meanings.
+You must judge whether the learner used THIS target phrase in THIS target meaning.
+
+If the learner uses the same word form but clearly with another meaning than the target meaning:
+- mark it as "wrong" if they clearly attempted the target surface phrase but with the wrong sense
+- mark it as "unused" if they only used some related or ambiguous expression and it is not clearly this target meaning
 
 --------------------------------
 CORE PRINCIPLE
@@ -170,13 +188,13 @@ In such a case:
 Use "correct" when ALL are true:
 - the learner used the target phrase or a natural inflected/grammatical variant of it, including accepted stored variants
 - the target phrase itself is grammatically correct in the learner's sentence
-- the target phrase is used with the correct meaning and function
+- the target phrase is used with the correct target meaning and function
 - the full learner sentence is semantically meaningful and plausible in Danish
 - if the phrase depends on discourse context, that context is satisfied
 
 Use "almost" when:
 - the learner clearly attempted the target phrase
-- the intended meaning is understandable
+- the intended target meaning is understandable
 - there is a small mistake INSIDE the target phrase
 - but the phrase is still close to correct
 
@@ -185,6 +203,8 @@ Use "wrong" when:
 - but the target phrase itself is incorrect
 OR
 - the phrase meaning or function is wrong in context
+OR
+- the learner used the same surface phrase with the wrong meaning
 OR
 - the phrase is used with impossible or unnatural arguments
 OR
@@ -321,7 +341,11 @@ Return ONLY valid JSON with exactly this structure:
 }`;
 };
 
-const defaultPhraseFeedback = (phrase: string): PhraseFeedbackItem => ({
+const defaultPhraseFeedback = (
+  phraseId: string,
+  phrase: string
+): PhraseFeedbackItem => ({
+  phraseId,
   phrase,
   status: "unused",
   comment: "",
@@ -355,7 +379,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const typedCards: PhraseCard[] = cards
+    const typedCards: IncomingPhraseCard[] = cards
       .filter(
         (card: any) =>
           card &&
@@ -365,6 +389,12 @@ export async function POST(req: Request) {
       .map((card: any) => ({
         id: card.id,
         phrase: card.phrase,
+        translation_en:
+          typeof card.translation_en === "string" ? card.translation_en : "",
+        short_explanation:
+          typeof card.short_explanation === "string"
+            ? card.short_explanation
+            : "",
       }));
 
     if (typedCards.length === 0) {
@@ -380,6 +410,8 @@ export async function POST(req: Request) {
     let phrasesWithVariants: PhraseWithVariants[] = typedCards.map((card) => ({
       id: card.id,
       phrase: card.phrase,
+      translation_en: card.translation_en ?? "",
+      short_explanation: card.short_explanation ?? "",
       matchingVariants: [],
     }));
 
@@ -407,6 +439,8 @@ export async function POST(req: Request) {
         phrasesWithVariants = typedCards.map((card) => ({
           id: card.id,
           phrase: card.phrase,
+          translation_en: card.translation_en ?? "",
+          short_explanation: card.short_explanation ?? "",
           matchingVariants: Array.from(
             new Set(variantsByPhraseId.get(card.id) || [])
           ),
@@ -659,8 +693,8 @@ Return ONLY the Danish reply.`,
       }
     }
 
-    let phraseFeedback: PhraseFeedbackItem[] = phraseList.map((phrase) =>
-      defaultPhraseFeedback(phrase)
+    let phraseFeedback: PhraseFeedbackItem[] = phrasesWithVariants.map((item) =>
+      defaultPhraseFeedback(item.id, item.phrase)
     );
 
     if (userMessage && userMessage.trim()) {
@@ -684,10 +718,12 @@ Return ONLY the Danish reply.`,
             input: [
               {
                 role: "system",
-                content: buildSinglePhrasePrompt(
-                  phraseItem.phrase,
-                  acceptedVariants
-                ),
+                content: buildSinglePhrasePrompt({
+                  phrase: phraseItem.phrase,
+                  translationEn: phraseItem.translation_en,
+                  shortExplanation: phraseItem.short_explanation,
+                  acceptedVariants,
+                }),
               },
               {
                 role: "user",
@@ -742,6 +778,7 @@ ${userMessage}`,
             const parsed = JSON.parse(rawText);
 
             return {
+              phraseId: phraseItem.id,
               phrase: phraseItem.phrase,
               status: parsed.status as
                 | "correct"
@@ -777,7 +814,7 @@ ${userMessage}`,
               err
             );
 
-            return defaultPhraseFeedback(phraseItem.phrase);
+            return defaultPhraseFeedback(phraseItem.id, phraseItem.phrase);
           }
         })
       );
