@@ -98,7 +98,19 @@ type MeaningMatchPair = {
   meaning: string;
 };
 
+type MeaningOption = {
+  optionId: string;
+  meaning: string;
+  sourcePhraseId: string | null;
+  isDistractor: boolean;
+};
+
+const MEANING_DISTRACTOR_COUNT = 2;
+
 const normalizePhraseKey = (value: string) =>
+  value.trim().toLowerCase().replace(/\s+/g, " ");
+
+const normalizeMeaningKey = (value: string) =>
   value.trim().toLowerCase().replace(/\s+/g, " ");
 
 const sortKeyDa = (phrase: string) => phrase.trim().replace(/^at\s+/i, "");
@@ -131,7 +143,7 @@ export default function PracticePage() {
   const [practiceStage, setPracticeStage] = useState<PracticeStage>("setup");
   const [practiceMode, setPracticeMode] = useState<PracticeMode | null>(null);
   const [meaningPairs, setMeaningPairs] = useState<MeaningMatchPair[]>([]);
-  const [meaningOptions, setMeaningOptions] = useState<MeaningMatchPair[]>([]);
+  const [meaningOptions, setMeaningOptions] = useState<MeaningOption[]>([]);
   const [selectedMeaningByPhraseId, setSelectedMeaningByPhraseId] = useState<Record<string, string>>({});
   const [activeMeaningPhraseId, setActiveMeaningPhraseId] = useState<string | null>(null);
   const [solvedMeaningPhraseIds, setSolvedMeaningPhraseIds] = useState<string[]>([]);
@@ -200,9 +212,11 @@ export default function PracticePage() {
 
   const visibleMeaningOptions = useMemo(
     () =>
-      meaningOptions.filter(
-        (option) => !solvedMeaningPhraseIds.includes(option.phraseId)
-      ),
+      meaningOptions.filter((option) => {
+        if (option.isDistractor) return true;
+        if (!option.sourcePhraseId) return true;
+        return !solvedMeaningPhraseIds.includes(option.sourcePhraseId);
+      }),
     [meaningOptions, solvedMeaningPhraseIds]
   );
 
@@ -363,29 +377,75 @@ export default function PracticePage() {
     }));
   };
 
+  const buildMeaningOptions = (
+    cardsToPractice: PhraseCard[],
+    allCards: PhraseCard[]
+  ): MeaningOption[] => {
+    const correctOptions: MeaningOption[] = cardsToPractice.map((card) => ({
+      optionId: `correct-${card.id}`,
+      meaning: card.short_explanation,
+      sourcePhraseId: card.id,
+      isDistractor: false,
+    }));
+
+    const selectedIdsSet = new Set(cardsToPractice.map((card) => card.id));
+    const usedMeaningKeys = new Set(
+      cardsToPractice.map((card) => normalizeMeaningKey(card.short_explanation))
+    );
+
+    const distractorCandidates = allCards.filter((card) => {
+      if (selectedIdsSet.has(card.id)) return false;
+      if (!card.short_explanation.trim()) return false;
+
+      const meaningKey = normalizeMeaningKey(card.short_explanation);
+      if (usedMeaningKeys.has(meaningKey)) return false;
+
+      return true;
+    });
+
+    const distractors = shuffle(distractorCandidates)
+      .slice(0, MEANING_DISTRACTOR_COUNT)
+      .map((card) => ({
+        optionId: `distractor-${card.id}`,
+        meaning: card.short_explanation,
+        sourcePhraseId: null,
+        isDistractor: true,
+      }));
+
+    return shuffle([...correctOptions, ...distractors]);
+  };
+
   const startMeaningMatch = (cardsToPractice: PhraseCard[]) => {
     const pairs = buildMeaningPairs(cardsToPractice);
+    const options = buildMeaningOptions(cardsToPractice, cards);
+
     setMeaningPairs(pairs);
-    setMeaningOptions(shuffle(pairs));
+    setMeaningOptions(options);
     setSelectedMeaningByPhraseId({});
     setActiveMeaningPhraseId(null);
     setSolvedMeaningPhraseIds([]);
     setPracticeStage("meaning_match");
   };
 
-  const assignMeaningToActivePhrase = (meaning: string) => {
+  const assignMeaningToActivePhrase = (optionId: string) => {
     if (!activeMeaningPhraseId) return;
 
     const targetPair = meaningPairs.find(
       (pair) => pair.phraseId === activeMeaningPhraseId
     );
 
-    if (!targetPair) {
+    const chosenOption = meaningOptions.find(
+      (option) => option.optionId === optionId
+    );
+
+    if (!targetPair || !chosenOption) {
       setActiveMeaningPhraseId(null);
       return;
     }
 
-    const isCorrect = targetPair.meaning === meaning;
+    const isCorrect =
+      !chosenOption.isDistractor &&
+      chosenOption.sourcePhraseId === targetPair.phraseId;
 
     if (isCorrect) {
       setSolvedMeaningPhraseIds((prev) =>
@@ -407,13 +467,13 @@ export default function PracticePage() {
     setSelectedMeaningByPhraseId((prev) => {
       const next: Record<string, string> = { ...prev };
 
-      for (const [phraseId, selectedMeaning] of Object.entries(next)) {
-        if (selectedMeaning === meaning) {
+      for (const [phraseId, selectedOptionId] of Object.entries(next)) {
+        if (selectedOptionId === optionId) {
           delete next[phraseId];
         }
       }
 
-      next[activeMeaningPhraseId] = meaning;
+      next[activeMeaningPhraseId] = optionId;
       return next;
     });
 
@@ -432,12 +492,16 @@ export default function PracticePage() {
     }
   };
 
-  const getPhraseMatchedMeaning = (phraseId: string) =>
-    selectedMeaningByPhraseId[phraseId] ?? null;
+  const getPhraseMatchedMeaning = (phraseId: string) => {
+    const optionId = selectedMeaningByPhraseId[phraseId];
+    if (!optionId) return null;
 
-  const getMeaningAssignedPhraseId = (meaning: string) => {
-    for (const [phraseId, selectedMeaning] of Object.entries(selectedMeaningByPhraseId)) {
-      if (selectedMeaning === meaning) return phraseId;
+    return meaningOptions.find((option) => option.optionId === optionId) ?? null;
+  };
+
+  const getMeaningAssignedPhraseId = (optionId: string) => {
+    for (const [phraseId, selectedOptionId] of Object.entries(selectedMeaningByPhraseId)) {
+      if (selectedOptionId === optionId) return phraseId;
     }
     return null;
   };
@@ -1609,7 +1673,7 @@ export default function PracticePage() {
         ? "Selected phrases"
         : practiceSource;
 
-          return (
+         return (
   <main className="app-page">
     <div className="page-header">
       <div className="page-header-main">
@@ -1790,6 +1854,10 @@ export default function PracticePage() {
           Click a phrase on the left, then click the matching Danish explanation on the right.
         </div>
 
+        <div className="meta-text" style={{ marginBottom: 8 }}>
+          Not every meaning on the right will be used.
+        </div>
+
         <div className="meta-text" style={{ marginBottom: 16 }}>
           Correct matches: {meaningCorrectCount} / {meaningPairs.length}
         </div>
@@ -1808,9 +1876,9 @@ export default function PracticePage() {
 
               <div style={{ display: "grid", gap: 8 }}>
                 {visibleMeaningPairs.map((pair) => {
-                  const matchedMeaning = getPhraseMatchedMeaning(pair.phraseId);
+                  const matchedOption = getPhraseMatchedMeaning(pair.phraseId);
                   const isActive = activeMeaningPhraseId === pair.phraseId;
-                  const hasMatch = !!matchedMeaning;
+                  const hasMatch = !!matchedOption;
 
                   return (
                     <div
@@ -1844,7 +1912,7 @@ export default function PracticePage() {
                         <span style={{ fontWeight: 600 }}>{pair.phrase}</span>
                       </button>
 
-                      {matchedMeaning && (
+                      {matchedOption && (
                         <div style={{ marginTop: 8 }}>
                           <div
                             style={{
@@ -1855,7 +1923,7 @@ export default function PracticePage() {
                               padding: "8px 10px",
                             }}
                           >
-                            {matchedMeaning}
+                            {matchedOption.meaning}
                           </div>
 
                           <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1880,7 +1948,7 @@ export default function PracticePage() {
 
               <div style={{ display: "grid", gap: 8 }}>
                 {visibleMeaningOptions.map((option) => {
-                  const assignedPhraseId = getMeaningAssignedPhraseId(option.meaning);
+                  const assignedPhraseId = getMeaningAssignedPhraseId(option.optionId);
                   const isAssigned = !!assignedPhraseId;
                   const assignedPhrase = visibleMeaningPairs.find(
                     (pair) => pair.phraseId === assignedPhraseId
@@ -1889,9 +1957,9 @@ export default function PracticePage() {
 
                   return (
                     <button
-                      key={`${option.phraseId}-${option.meaning}`}
+                      key={option.optionId}
                       type="button"
-                      onClick={() => assignMeaningToActivePhrase(option.meaning)}
+                      onClick={() => assignMeaningToActivePhrase(option.optionId)}
                       disabled={!activeCanTakeThis}
                       className={`button-secondary ${
                         !activeCanTakeThis ? "button-disabled" : ""
