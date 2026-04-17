@@ -66,6 +66,7 @@ const LARGE_DB_FIRST_TURN_CAP = 120;
 const LARGE_DB_LATER_TURN_CAP = 60;
 const SPONTANEOUS_MASTERY_BONUS_MIN_ATTEMPTS = 1;
 const SPONTANEOUS_MASTERY_BONUS_MAX_ATTEMPTS = 3;
+
 const MIN_CONFIDENCE = 0.6;
 const AMBIGUOUS_SINGLE_WORD_MIN_CONFIDENCE = 0.8;
 const MIN_OVERLAP_RATIO = 0.5;
@@ -108,7 +109,10 @@ const containsNormalizedSubstring = (haystack: string, needle: string) => {
   return ` ${normalizedHaystack} `.includes(` ${normalizedNeedle} `);
 };
 
-const getTokenOverlapRatio = (detectedText: string, candidateTexts: string[]) => {
+const getTokenOverlapRatio = (
+  detectedText: string,
+  candidateTexts: string[]
+) => {
   const detectedTokens = tokenize(detectedText);
   if (detectedTokens.length === 0) return 0;
 
@@ -287,6 +291,34 @@ const parseSpontaneousResponse = (
     console.error("Failed to parse spontaneous response JSON:", rawText, err);
     return null;
   }
+};
+
+const dedupeByStrongestMatch = (matches: SpontaneousMatch[]) => {
+  const byPhraseId = new Map<string, SpontaneousMatch>();
+
+  for (const match of matches) {
+    if (!match.phraseId) continue;
+
+    const existing = byPhraseId.get(match.phraseId);
+    if (!existing) {
+      byPhraseId.set(match.phraseId, match);
+      continue;
+    }
+
+    const existingDetectedLength = normalizeText(existing.detectedText).length;
+    const newDetectedLength = normalizeText(match.detectedText).length;
+
+    const shouldReplace =
+      match.confidence > existing.confidence ||
+      (match.confidence === existing.confidence &&
+        newDetectedLength > existingDetectedLength);
+
+    if (shouldReplace) {
+      byPhraseId.set(match.phraseId, match);
+    }
+  }
+
+  return Array.from(byPhraseId.values());
 };
 
 export async function evaluateAndApplySpontaneousUsage({
@@ -526,7 +558,11 @@ ${trimmedMessage}`,
 
   console.log("[spontaneous] raw model matches:", parsed.spontaneousMatches);
 
-  const validMatches = parsed.spontaneousMatches.filter((match) => {
+  const dedupedMatches = dedupeByStrongestMatch(parsed.spontaneousMatches);
+
+  console.log("[spontaneous] deduped model matches:", dedupedMatches);
+
+  const validMatches = dedupedMatches.filter((match) => {
     if (!match.phraseId || !candidateMapById.has(match.phraseId)) {
       console.log(
         "[spontaneous] skipped phraseId not in candidate pool:",
@@ -635,7 +671,7 @@ ${trimmedMessage}`,
 
   if (validMatches.length === 0) {
     console.log("[spontaneous] no valid non-target spontaneous matches to update");
-    return parsed.spontaneousMatches;
+    return dedupedMatches;
   }
 
   const nowIso = new Date().toISOString();
@@ -726,5 +762,5 @@ ${trimmedMessage}`,
     );
   }
 
-  return parsed.spontaneousMatches;
+  return dedupedMatches;
 }
