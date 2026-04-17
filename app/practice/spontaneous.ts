@@ -67,6 +67,8 @@ const LARGE_DB_LATER_TURN_CAP = 60;
 const SPONTANEOUS_MASTERY_BONUS_MIN_ATTEMPTS = 1;
 const SPONTANEOUS_MASTERY_BONUS_MAX_ATTEMPTS = 3;
 const MIN_CONFIDENCE = 0.6;
+const AMBIGUOUS_SINGLE_WORD_MIN_CONFIDENCE = 0.8;
+const MIN_OVERLAP_RATIO = 0.5;
 
 const normalizeText = (value: string) =>
   value
@@ -96,6 +98,49 @@ const overlapScoreForTexts = (message: string, texts: string[]) => {
     const score = phraseTokens.filter((token) => messageTokens.has(token)).length;
     return Math.max(bestScore, score);
   }, 0);
+};
+
+const containsNormalizedSubstring = (haystack: string, needle: string) => {
+  const normalizedHaystack = normalizeText(haystack);
+  const normalizedNeedle = normalizeText(needle);
+
+  if (!normalizedNeedle) return false;
+  return ` ${normalizedHaystack} `.includes(` ${normalizedNeedle} `);
+};
+
+const getTokenOverlapRatio = (detectedText: string, candidateTexts: string[]) => {
+  const detectedTokens = tokenize(detectedText);
+  if (detectedTokens.length === 0) return 0;
+
+  let bestRatio = 0;
+
+  for (const candidateText of candidateTexts) {
+    const candidateTokens = tokenize(stripLeadingAt(candidateText));
+    if (candidateTokens.length === 0) continue;
+
+    const detectedSet = new Set(detectedTokens);
+    const overlapCount = candidateTokens.filter((token) =>
+      detectedSet.has(token)
+    ).length;
+
+    const ratio = overlapCount / candidateTokens.length;
+    if (ratio > bestRatio) bestRatio = ratio;
+  }
+
+  return bestRatio;
+};
+
+const isClearlyCopiedFromAssistant = (
+  detectedText: string,
+  previousAssistantMessage: string
+) => {
+  if (!detectedText.trim() || !previousAssistantMessage.trim()) return false;
+  return containsNormalizedSubstring(previousAssistantMessage, detectedText);
+};
+
+const normalizeConfidence = (value: unknown) => {
+  if (typeof value !== "number" || Number.isNaN(value)) return 0;
+  return Math.max(0, Math.min(1, value));
 };
 
 const daysSinceIso = (iso: string | null) => {
@@ -222,7 +267,21 @@ const parseSpontaneousResponse = (
     }
 
     return {
-      spontaneousMatches: parsed.spontaneousMatches,
+      spontaneousMatches: parsed.spontaneousMatches.map((item: any) => ({
+        phraseId: typeof item.phraseId === "string" ? item.phraseId : "",
+        phrase: typeof item.phrase === "string" ? item.phrase : "",
+        status:
+          item.status === "correct" ||
+          item.status === "almost" ||
+          item.status === "wrong" ||
+          item.status === "unused"
+            ? item.status
+            : "unused",
+        detectedText:
+          typeof item.detectedText === "string" ? item.detectedText : "",
+        isSpontaneous: item.isSpontaneous === true,
+        confidence: normalizeConfidence(item.confidence),
+      })),
     };
   } catch (err) {
     console.error("Failed to parse spontaneous response JSON:", rawText, err);
@@ -477,11 +536,26 @@ ${trimmedMessage}`,
       return false;
     }
 
+    const candidateRow = candidateMapById.get(match.phraseId);
+    if (!candidateRow) return false;
+
     if (currentTargetIds.has(match.phraseId)) {
       console.log(
         "[spontaneous] skipped current target returned by model:",
         match.phraseId,
         match.phrase
+      );
+      return false;
+    }
+
+    if (match.phrase !== candidateRow.phrase) {
+      console.log(
+        "[spontaneous] skipped mismatched phrase label for phraseId:",
+        match.phraseId,
+        "model:",
+        match.phrase,
+        "expected:",
+        candidateRow.phrase
       );
       return false;
     }
@@ -494,12 +568,63 @@ ${trimmedMessage}`,
       return false;
     }
 
-    if (typeof match.confidence === "number" && match.confidence < MIN_CONFIDENCE) {
-  return false;
-}
-
     if (match.status === "unused") {
       console.log("[spontaneous] skipped unused match:", match.phrase);
+      return false;
+    }
+
+    if (!match.detectedText.trim()) {
+      console.log(
+        "[spontaneous] skipped match with empty detectedText:",
+        match.phrase
+      );
+      return false;
+    }
+
+    if (!containsNormalizedSubstring(trimmedMessage, match.detectedText)) {
+      console.log(
+        "[spontaneous] skipped detectedText not found in learner message:",
+        match.phrase,
+        match.detectedText
+      );
+      return false;
+    }
+
+    const candidateTexts = [candidateRow.phrase, ...candidateRow.matchingVariants];
+    const overlapRatio = getTokenOverlapRatio(match.detectedText, candidateTexts);
+
+    if (overlapRatio < MIN_OVERLAP_RATIO) {
+      console.log(
+        "[spontaneous] skipped low overlap between detectedText and candidate:",
+        match.phrase,
+        match.detectedText,
+        overlapRatio
+      );
+      return false;
+    }
+
+    if (isClearlyCopiedFromAssistant(match.detectedText, previousAssistantMessage)) {
+      console.log(
+        "[spontaneous] detectedText also appears in previous assistant message:",
+        match.phrase,
+        match.detectedText
+      );
+    }
+
+    const candidateTokenCount = tokenize(stripLeadingAt(candidateRow.phrase)).length;
+    const requiredConfidence =
+      candidateTokenCount <= 1
+        ? AMBIGUOUS_SINGLE_WORD_MIN_CONFIDENCE
+        : MIN_CONFIDENCE;
+
+    if (match.confidence < requiredConfidence) {
+      console.log(
+        "[spontaneous] skipped low-confidence match:",
+        match.phrase,
+        match.confidence,
+        "required:",
+        requiredConfidence
+      );
       return false;
     }
 
