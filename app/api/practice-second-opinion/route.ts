@@ -273,7 +273,9 @@ REVIEW PRINCIPLES
 10. Accepted stored variants count as valid usage of the target phrase.
 11. Natural inflected forms of accepted stored variants also count.
 12. Review each phrase by phraseId and target meaning, not only by surface phrase.
-
+13. Punctuation mistakes should normally be ignored.
+14. Do not downgrade a phrase from correct to almost or wrong just because of punctuation, capitalization, or informal chat-style writing.
+15. Minor punctuation problems may be mentioned in feedback if useful, but they must not determine the phrase verdict.
 --------------------------------
 IMPORTANT DANISH RULES
 --------------------------------

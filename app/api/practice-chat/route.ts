@@ -313,6 +313,14 @@ Missing commas should normally NOT count as a grammar issue.
 If sentenceIssue is "minor" or "major", provide a short natural corrected version of the learner's full sentence in correctedSentence.
 If sentenceIssue is "none", correctedSentence must be empty.
 
+IMPORTANT! Punctuation and capitalization:
+- Do not be picky about punctuation.
+- Ignore missing commas, extra commas, missing periods, and normal chat-style punctuation differences.
+- Ignore capitalization issues unless they materially affect meaning.
+- These issues should not make the target phrase count as wrong or almost.
+- Minor punctuation or capitalization issues should normally not trigger sentenceIssue.
+- Only care about punctuation if it creates real ambiguity or clearly changes the meaning.
+
 --------------------------------
 7. SUGGESTIONS
 --------------------------------
