@@ -230,18 +230,61 @@ Nuværende extra info:
 ${currentExtraInfo || "(tom)"}
 
 Opgave:
-Skriv extra info på dansk.
-Omskriv det i et kort og ryddeligt format.
-Brug helst 1 kort sætning, højst 2 korte sætninger.
-Det må gerne nævne:
-- om udtrykket er fast eller fleksibelt
-- tone eller register
-- en lille brugsmæssig nuance
-- en lille grammatisk bemærkning, hvis det er relevant
+Skriv "extra info" på dansk i et fast, kort format.
 
-Gentag ikke bare hele forklaringen.
-Giv ikke et helt eksempel, medmindre det virkelig er nødvendigt.
-Hold det kompakt og let at læse.
+Vælg det format, der passer bedst:
+
+1. Hvis frasen er et verbum:
+Brug formatet:
+"verbum · nutid: ... · datid: ... · perfektum: ..."
+
+Eksempel:
+"verbum · nutid: advarer · datid: advarede · perfektum: har advaret"
+
+2. Hvis frasen er et substantiv:
+Brug formatet:
+"substantiv · en/et: ... · pluralis: ..."
+
+Eksempel:
+"substantiv · et ord · pluralis: ord"
+
+Hvis pluralis normalt ikke bruges, må du skrive:
+"substantiv · en/et: ... · pluralis: bruges sjældent"
+
+3. Hvis frasen er et adjektiv:
+Brug ét af disse formater:
+"adjektiv · intetkøn: ... · flertal: ..."
+eller
+"adjektiv · fælleskøn/flertal: ..."
+
+Eksempler:
+"adjektiv · intetkøn: vigtigt · flertal: vigtige"
+"adjektiv · fælleskøn/flertal: vigtige"
+
+4. Hvis frasen er et fast udtryk:
+Brug formatet:
+"fast udtryk · ..."
+Efter prikken må du skrive en meget kort nyttig bemærkning eller lille nuance.
+
+Eksempel:
+"fast udtryk · bruges som samlet vending, ikke ord for ord"
+
+5. Hvis frasen er et adverbium:
+Brug formatet:
+"adverbium · ..."
+Efter prikken må du skrive en meget kort nyttig bemærkning eller lille nuance.
+
+Eksempel:
+"adverbium · bruges til at nuancere tonen i sætningen"
+
+Regler:
+- Skriv kun én kort linje.
+- Skriv på dansk.
+- Hold det kompakt og ensartet.
+- Gentag ikke hele forklaringen.
+- Giv ikke et helt eksempel.
+- Hvis ordklassen er lidt uklar, vælg den mest nyttige løsning for en sprogstuderende.
+- Bevar punkt-separatoren " · " mellem delene.
 
 Returnér kun den nye tekst til extra info.
 `.trim();
@@ -275,7 +318,7 @@ ${phrase}
 Chosen English meaning:
 ${translationEn}
 
-Short explanation:
+Danish explanation:
 ${explanation || "(empty)"}
 
 Extra info:

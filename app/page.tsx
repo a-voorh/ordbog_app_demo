@@ -133,6 +133,14 @@ type RefreshMeaningPickerState = {
   candidates: string[];
 };
 
+  const refreshButtonStyle = (isLoading: boolean) =>
+    ({
+      opacity: isLoading ? 0.7 : 1,
+      cursor: isLoading ? "wait" : "pointer",
+      transform: isLoading ? "scale(0.98)" : "scale(1)",
+      transition: "all 0.15s ease",
+    }) as const;
+
 const normalizeTag = (tag: string) => tag.trim();
 
 const normalizePhraseKey = (value: string) =>
@@ -2779,6 +2787,9 @@ export default function Home() {
                           className="button-secondary button-small"
                           onClick={() => void openMeaningCandidatesForItem(draft, "draft")}
                           disabled={refreshingKey === getRefreshKey(draft.id, "translation_en")}
+                          style={refreshButtonStyle(
+                            refreshingKey === getRefreshKey(draft.id, "translation_en")
+                          )}
                         >
                           {refreshingKey === getRefreshKey(draft.id, "translation_en")
                             ? "Loading..."
@@ -2811,8 +2822,13 @@ export default function Home() {
                             void refreshExplanationField(draft, "draft", "rewrite_shorter")
                           }
                           disabled={refreshingKey === getRefreshKey(draft.id, "short_explanation")}
+                          style={refreshButtonStyle(
+                            refreshingKey === getRefreshKey(draft.id, "short_explanation")
+                          )}
                         >
-                          shorter
+                          {refreshingKey === getRefreshKey(draft.id, "short_explanation")
+                            ? "Loading..."
+                            : "shorter"}
                         </button>
                         <button
                           type="button"
@@ -2821,8 +2837,13 @@ export default function Home() {
                             void refreshExplanationField(draft, "draft", "rewrite_clearer")
                           }
                           disabled={refreshingKey === getRefreshKey(draft.id, "short_explanation")}
+                          style={refreshButtonStyle(
+                            refreshingKey === getRefreshKey(draft.id, "short_explanation")
+                          )}
                         >
-                          clearer
+                          {refreshingKey === getRefreshKey(draft.id, "short_explanation")
+                            ? "Loading..."
+                            : "clearer"}
                         </button>
                       </div>
                       <div>{draft.short_explanation}</div>
@@ -2846,8 +2867,13 @@ export default function Home() {
                             void refreshDanishExampleField(draft, "draft", "new_example")
                           }
                           disabled={refreshingKey === getRefreshKey(draft.id, "example_da")}
+                          style={refreshButtonStyle(
+                            refreshingKey === getRefreshKey(draft.id, "example_da")
+                          )}
                         >
-                          new
+                          {refreshingKey === getRefreshKey(draft.id, "example_da")
+                            ? "Loading..."
+                            : "new"}
                         </button>
                         <button
                           type="button"
@@ -2860,8 +2886,13 @@ export default function Home() {
                             )
                           }
                           disabled={refreshingKey === getRefreshKey(draft.id, "example_da")}
+                          style={refreshButtonStyle(
+                            refreshingKey === getRefreshKey(draft.id, "example_da")
+                          )}
                         >
-                          less straightforward
+                          {refreshingKey === getRefreshKey(draft.id, "example_da")
+                            ? "Loading..."
+                            : "less straightforward"}
                         </button>
                         <button
                           type="button"
@@ -2870,8 +2901,13 @@ export default function Home() {
                             void refreshDanishExampleField(draft, "draft", "more_natural")
                           }
                           disabled={refreshingKey === getRefreshKey(draft.id, "example_da")}
+                          style={refreshButtonStyle(
+                            refreshingKey === getRefreshKey(draft.id, "example_da")
+                          )}
                         >
-                          more natural
+                          {refreshingKey === getRefreshKey(draft.id, "example_da")
+                            ? "Loading..."
+                            : "more natural"}
                         </button>
                       </div>
                       <div>{draft.example_da}</div>
@@ -2893,8 +2929,13 @@ export default function Home() {
                           className="button-secondary button-small"
                           onClick={() => void refreshEnglishExampleField(draft, "draft")}
                           disabled={refreshingKey === getRefreshKey(draft.id, "example_en")}
+                          style={refreshButtonStyle(
+                            refreshingKey === getRefreshKey(draft.id, "example_en")
+                          )}
                         >
-                          retranslate
+                          {refreshingKey === getRefreshKey(draft.id, "example_en")
+                            ? "Loading..."
+                            : "retranslate"}
                         </button>
                       </div>
                       <div>{draft.example_en}</div>
@@ -2916,8 +2957,13 @@ export default function Home() {
                           className="button-secondary button-small"
                           onClick={() => void refreshExtraInfoField(draft, "draft")}
                           disabled={refreshingKey === getRefreshKey(draft.id, "extra_info")}
+                          style={refreshButtonStyle(
+                            refreshingKey === getRefreshKey(draft.id, "extra_info")
+                          )}
                         >
-                          reformat
+                          {refreshingKey === getRefreshKey(draft.id, "extra_info")
+                            ? "Loading..."
+                            : "reformat"}
                         </button>
                       </div>
                       <div>{draft.extra_info || "—"}</div>
@@ -3469,6 +3515,9 @@ export default function Home() {
                         className="button-secondary button-small"
                         onClick={() => void openMeaningCandidatesForItem(card, "phrase")}
                         disabled={refreshingKey === getRefreshKey(card.id, "translation_en")}
+                        style={refreshButtonStyle(
+                          refreshingKey === getRefreshKey(card.id, "translation_en")
+                        )}
                       >
                         {refreshingKey === getRefreshKey(card.id, "translation_en")
                           ? "Loading..."
@@ -3501,8 +3550,13 @@ export default function Home() {
                           void refreshExplanationField(card, "phrase", "rewrite_shorter")
                         }
                         disabled={refreshingKey === getRefreshKey(card.id, "short_explanation")}
+                        style={refreshButtonStyle(
+                          refreshingKey === getRefreshKey(card.id, "short_explanation")
+                        )}
                       >
-                        shorter
+                        {refreshingKey === getRefreshKey(card.id, "short_explanation")
+                          ? "Loading..."
+                          : "shorter"}
                       </button>
                       <button
                         type="button"
@@ -3511,8 +3565,13 @@ export default function Home() {
                           void refreshExplanationField(card, "phrase", "rewrite_clearer")
                         }
                         disabled={refreshingKey === getRefreshKey(card.id, "short_explanation")}
+                        style={refreshButtonStyle(
+                          refreshingKey === getRefreshKey(card.id, "short_explanation")
+                        )}
                       >
-                        clearer
+                        {refreshingKey === getRefreshKey(card.id, "short_explanation")
+                          ? "Loading..."
+                          : "clearer"}
                       </button>
                     </div>
                     <div>{card.short_explanation}</div>
@@ -3536,8 +3595,13 @@ export default function Home() {
                           void refreshDanishExampleField(card, "phrase", "new_example")
                         }
                         disabled={refreshingKey === getRefreshKey(card.id, "example_da")}
+                        style={refreshButtonStyle(
+                          refreshingKey === getRefreshKey(card.id, "example_da")
+                        )}
                       >
-                        new
+                        {refreshingKey === getRefreshKey(card.id, "example_da")
+                          ? "Loading..."
+                          : "new"}
                       </button>
                       <button
                         type="button"
@@ -3550,8 +3614,13 @@ export default function Home() {
                           )
                         }
                         disabled={refreshingKey === getRefreshKey(card.id, "example_da")}
+                        style={refreshButtonStyle(
+                          refreshingKey === getRefreshKey(card.id, "example_da")
+                        )}
                       >
-                        less straightforward
+                        {refreshingKey === getRefreshKey(card.id, "example_da")
+                          ? "Loading..."
+                          : "less straightforward"}
                       </button>
                       <button
                         type="button"
@@ -3560,8 +3629,13 @@ export default function Home() {
                           void refreshDanishExampleField(card, "phrase", "more_natural")
                         }
                         disabled={refreshingKey === getRefreshKey(card.id, "example_da")}
+                        style={refreshButtonStyle(
+                          refreshingKey === getRefreshKey(card.id, "example_da")
+                        )}
                       >
-                        more natural
+                        {refreshingKey === getRefreshKey(card.id, "example_da")
+                          ? "Loading..."
+                          : "more natural"}
                       </button>
                     </div>
                     <div>{card.example_da}</div>
@@ -3583,8 +3657,13 @@ export default function Home() {
                         className="button-secondary button-small"
                         onClick={() => void refreshEnglishExampleField(card, "phrase")}
                         disabled={refreshingKey === getRefreshKey(card.id, "example_en")}
+                        style={refreshButtonStyle(
+                          refreshingKey === getRefreshKey(card.id, "example_en")
+                        )}
                       >
-                        retranslate
+                        {refreshingKey === getRefreshKey(card.id, "example_en")
+                          ? "Loading..."
+                          : "retranslate"}
                       </button>
                     </div>
                     <div>{card.example_en}</div>
@@ -3606,8 +3685,13 @@ export default function Home() {
                         className="button-secondary button-small"
                         onClick={() => void refreshExtraInfoField(card, "phrase")}
                         disabled={refreshingKey === getRefreshKey(card.id, "extra_info")}
+                        style={refreshButtonStyle(
+                          refreshingKey === getRefreshKey(card.id, "extra_info")
+                        )}
                       >
-                        reformat
+                        {refreshingKey === getRefreshKey(card.id, "extra_info")
+                          ? "Loading..."
+                          : "reformat"}
                       </button>
                     </div>
                     <div>{card.extra_info || "—"}</div>
