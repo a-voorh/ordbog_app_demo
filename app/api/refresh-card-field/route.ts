@@ -65,7 +65,9 @@ async function getRow(entityType: EntityType, id: string): Promise<RowData> {
     .single();
 
   if (error || !data) {
-    throw new Error(`Could not load row from ${table}: ${error?.message ?? "Unknown error"}`);
+    throw new Error(
+      `Could not load row from ${table}: ${error?.message ?? "Unknown error"}`
+    );
   }
 
   return data as RowData;
@@ -88,7 +90,9 @@ async function updateRow(
     .single();
 
   if (error || !data) {
-    throw new Error(`Could not update row in ${table}: ${error?.message ?? "Unknown error"}`);
+    throw new Error(
+      `Could not update row in ${table}: ${error?.message ?? "Unknown error"}`
+    );
   }
 
   return data as RowData;
@@ -173,30 +177,30 @@ async function rewriteExplanation(params: {
 
   const styleInstruction =
     mode === "rewrite_shorter"
-      ? "Rewrite it to be shorter, cleaner, and direct."
-      : "Rewrite it to be clearer, smoother, and easier to understand.";
+      ? "Omskriv forklaringen, så den bliver kortere, strammere og mere direkte."
+      : "Omskriv forklaringen, så den bliver klarere, mere naturlig og lettere at forstå.";
 
   const prompt = `
-You are improving a Danish phrase card.
+Du forbedrer et kort med en dansk frase.
 
-Phrase:
+Frase:
 ${phrase}
 
-Chosen English meaning:
+Valgt engelsk betydning:
 ${translationEn}
 
-Current explanation:
-${currentExplanation || "(empty)"}
+Nuværende forklaring:
+${currentExplanation || "(tom)"}
 
-Task:
+Opgave:
 ${styleInstruction}
-Base it on the chosen English meaning.
-Keep it in simple natural English.
-Do not make it long.
-Do not give an example sentence.
-1-2 short sentences max.
+Forklaringen skal være på dansk.
+Den skal passe til den valgte engelske betydning.
+Hold den kort og naturlig.
+Giv ikke en eksempel-sætning.
+Højst 1-2 korte sætninger.
 
-Return only the rewritten explanation text.
+Returnér kun den nye forklaringstekst.
 `.trim();
 
   return askModel(prompt);
@@ -211,34 +215,35 @@ async function rewriteExtraInfo(params: {
   const { phrase, translationEn, explanation, currentExtraInfo } = params;
 
   const prompt = `
-You are improving the "extra info" field of a Danish phrase card.
+Du forbedrer feltet "extra info" for et kort med en dansk frase.
 
-Phrase:
+Frase:
 ${phrase}
 
-Chosen English meaning:
+Valgt engelsk betydning:
 ${translationEn}
 
-Short explanation:
-${explanation || "(empty)"}
+Kort forklaring:
+${explanation || "(tom)"}
 
-Current extra info:
-${currentExtraInfo || "(empty)"}
+Nuværende extra info:
+${currentExtraInfo || "(tom)"}
 
-Task:
-Rewrite the extra info in a compact, tidy format.
-Prefer 1 short sentence, or at most 2 short sentences.
-Useful things include:
-- whether it is a fixed or flexible expression
-- register / tone
-- a small usage nuance
-- a tiny grammar hint if relevant
+Opgave:
+Skriv extra info på dansk.
+Omskriv det i et kort og ryddeligt format.
+Brug helst 1 kort sætning, højst 2 korte sætninger.
+Det må gerne nævne:
+- om udtrykket er fast eller fleksibelt
+- tone eller register
+- en lille brugsmæssig nuance
+- en lille grammatisk bemærkning, hvis det er relevant
 
-Do not repeat the whole explanation.
-Do not give a full example sentence unless absolutely necessary.
-Keep it compact and readable.
+Gentag ikke bare hele forklaringen.
+Giv ikke et helt eksempel, medmindre det virkelig er nødvendigt.
+Hold det kompakt og let at læse.
 
-Return only the rewritten extra info text.
+Returnér kun den nye tekst til extra info.
 `.trim();
 
   return askModel(prompt);
@@ -258,8 +263,8 @@ async function generateExampleDa(params: {
     mode === "less_straightforward"
       ? "Generate a new Danish example that is a bit less obvious and less textbook-like, but still natural and clear."
       : mode === "more_natural"
-      ? "Generate a new Danish example that sounds especially natural and everyday."
-      : "Generate a new Danish example.";
+        ? "Generate a new Danish example that sounds especially natural and everyday."
+        : "Generate a new Danish example.";
 
   const prompt = `
 You are improving a Danish phrase card.
@@ -325,7 +330,14 @@ Return only the English translation sentence.
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as RequestBody;
-    const { entityType, id, field, action, existingMeanings = [], selectedMeaning } = body;
+    const {
+      entityType,
+      id,
+      field,
+      action,
+      existingMeanings = [],
+      selectedMeaning,
+    } = body;
 
     if (!entityType || !id || !field || !action) {
       return NextResponse.json(
@@ -426,8 +438,8 @@ export async function POST(req: NextRequest) {
         action === "less_straightforward"
           ? "less_straightforward"
           : action === "more_natural"
-          ? "more_natural"
-          : "new_example";
+            ? "more_natural"
+            : "new_example";
 
       const newExampleDa = await generateExampleDa({
         phrase: row.phrase,
@@ -487,8 +499,7 @@ export async function POST(req: NextRequest) {
     console.error("refresh-card-field route error:", error);
     return NextResponse.json(
       {
-        error:
-          error instanceof Error ? error.message : "Unknown server error",
+        error: error instanceof Error ? error.message : "Unknown server error",
       },
       { status: 500 }
     );
