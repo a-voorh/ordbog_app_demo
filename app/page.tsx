@@ -14,6 +14,7 @@ type PhraseCard = {
   extra_info?: string | null;
   created_at: string;
   tags: string[];
+  meanings?: string[];
   times_attempted?: number | null;
   times_correct?: number | null;
   times_almost?: number | null;
@@ -37,6 +38,7 @@ type PendingDraft = {
   example_en: string;
   extra_info?: string | null;
   tags: string[];
+  meanings?: string[];
   created_at: string;
   source: string;
 };
@@ -101,6 +103,35 @@ type GeneratedUsageVariant = {
 };
 
 type DatabaseViewMode = "attention" | "all";
+
+type RefreshEntityType = "phrase" | "draft";
+
+type RefreshField =
+  | "translation_en"
+  | "short_explanation"
+  | "extra_info"
+  | "example_da"
+  | "example_en";
+
+type RefreshAction =
+  | "generate_meaning_candidates"
+  | "set_meaning"
+  | "rewrite_shorter"
+  | "rewrite_clearer"
+  | "rewrite_format"
+  | "new_example"
+  | "less_straightforward"
+  | "more_natural"
+  | "retranslate_from_danish";
+
+type RefreshableItem = PhraseCard | PendingDraft;
+
+type RefreshMeaningPickerState = {
+  open: boolean;
+  itemId: string | null;
+  entityType: RefreshEntityType | null;
+  candidates: string[];
+};
 
 const normalizeTag = (tag: string) => tag.trim();
 
@@ -237,7 +268,20 @@ export default function Home() {
   const [meaningOptions, setMeaningOptions] = useState<MeaningOption[]>([]);
   const [pendingMeaningChoice, setPendingMeaningChoice] = useState<PendingMeaningChoice | null>(null);
 
+  const [refreshMeaningPicker, setRefreshMeaningPicker] =
+    useState<RefreshMeaningPickerState>({
+      open: false,
+      itemId: null,
+      entityType: null,
+      candidates: [],
+    });
+
+  const [refreshingKey, setRefreshingKey] = useState<string | null>(null);
+
   const lookupInputRef = useRef<HTMLInputElement | null>(null);
+
+  const refreshBtnClass =
+    "ml-2 rounded border px-2 py-0.5 text-xs hover:bg-neutral-100";
 
   useEffect(() => {
     const load = async () => {
@@ -464,6 +508,305 @@ export default function Home() {
           translation_en: translationEn,
         })
     );
+  };
+
+  const getRefreshKey = (id: string, field: RefreshField) => `${id}:${field}`;
+
+  const updateItemInList = <T extends RefreshableItem>(
+    items: T[],
+    id: string,
+    updates: Partial<T>
+  ): T[] => items.map((item) => (item.id === id ? { ...item, ...updates } : item));
+
+  const findRefreshItemById = (
+    entityType: RefreshEntityType,
+    id: string
+  ): RefreshableItem | null => {
+    if (entityType === "phrase") {
+      return cards.find((card) => card.id === id) ?? null;
+    }
+    return pendingDrafts.find((draft) => draft.id === id) ?? null;
+  };
+
+  const applyUpdatedFieldsLocally = (
+    entityType: RefreshEntityType,
+    id: string,
+    updatedFields: Partial<RefreshableItem>
+  ) => {
+    if (entityType === "phrase") {
+      setCards((prev) =>
+        sortByPhraseDa(
+          updateItemInList(prev, id, updatedFields as Partial<PhraseCard>)
+        )
+      );
+
+      setAnalysis((prev) =>
+        prev?.id === id ? ({ ...prev, ...updatedFields } as PhraseCard) : prev
+      );
+    } else {
+      setPendingDrafts((prev) =>
+        sortByPhraseDa(
+          updateItemInList(prev, id, updatedFields as Partial<PendingDraft>)
+        )
+      );
+    }
+  };
+
+  const closeRefreshMeaningPicker = () => {
+    setRefreshMeaningPicker({
+      open: false,
+      itemId: null,
+      entityType: null,
+      candidates: [],
+    });
+  };
+
+  const maybeRefreshUsageVariantsAfterFieldRefresh = async (
+    entityType: RefreshEntityType,
+    id: string,
+    updatedFields: Partial<RefreshableItem>
+  ) => {
+    if (entityType !== "phrase") return;
+
+    const currentCard = cards.find((card) => card.id === id);
+    if (!currentCard) return;
+
+    const merged: PhraseCard = {
+      ...currentCard,
+      ...(updatedFields as Partial<PhraseCard>),
+    };
+
+    await replaceUsageVariantsForPhrase(id, {
+      phrase: merged.phrase,
+      translation_en: merged.translation_en,
+      short_explanation: merged.short_explanation,
+      example_da: merged.example_da,
+      example_en: merged.example_en,
+      extra_info: merged.extra_info,
+    });
+  };
+
+  const callRefreshField = async (params: {
+    entityType: RefreshEntityType;
+    id: string;
+    field: RefreshField;
+    action: RefreshAction;
+    existingMeanings?: string[];
+    selectedMeaning?: string;
+  }) => {
+    const key = getRefreshKey(params.id, params.field);
+    setRefreshingKey(key);
+
+    try {
+      const res = await fetch("/api/refresh-card-field", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(params),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Failed to refresh field.");
+      }
+
+      return json;
+    } finally {
+      setRefreshingKey(null);
+    }
+  };
+
+  const openMeaningCandidatesForItem = async (
+    item: RefreshableItem,
+    entityType: RefreshEntityType
+  ) => {
+    try {
+      const json = await callRefreshField({
+        entityType,
+        id: item.id,
+        field: "translation_en",
+        action: "generate_meaning_candidates",
+        existingMeanings: item.meanings ?? [],
+      });
+
+      setRefreshMeaningPicker({
+        open: true,
+        itemId: item.id,
+        entityType,
+        candidates: Array.isArray(json.candidates) ? json.candidates : [],
+      });
+    } catch (error) {
+      console.error(error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Could not load meaning candidates."
+      );
+    }
+  };
+
+  const chooseMeaningForItem = async (
+    itemId: string,
+    entityType: RefreshEntityType,
+    selectedMeaning: string
+  ) => {
+    try {
+      const item = findRefreshItemById(entityType, itemId);
+      if (!item) {
+        alert("Could not find the item to update.");
+        return;
+      }
+
+      const json = await callRefreshField({
+        entityType,
+        id: itemId,
+        field: "translation_en",
+        action: "set_meaning",
+        selectedMeaning,
+      });
+
+      const updatedMeaningList = Array.from(
+        new Set(
+          [
+            ...(item.meanings ?? []),
+            ...refreshMeaningPicker.candidates,
+            selectedMeaning,
+          ]
+            .map((x) => x.trim())
+            .filter(Boolean)
+        )
+      );
+
+      const updatedFields: Partial<RefreshableItem> = {
+        ...(json.updatedFields || {}),
+        meanings: updatedMeaningList,
+      };
+
+      applyUpdatedFieldsLocally(entityType, itemId, updatedFields);
+      await maybeRefreshUsageVariantsAfterFieldRefresh(
+        entityType,
+        itemId,
+        updatedFields
+      );
+      closeRefreshMeaningPicker();
+    } catch (error) {
+      console.error(error);
+      alert(
+        error instanceof Error ? error.message : "Could not save selected meaning."
+      );
+    }
+  };
+
+  const refreshExplanationField = async (
+    item: RefreshableItem,
+    entityType: RefreshEntityType,
+    action: "rewrite_shorter" | "rewrite_clearer" = "rewrite_shorter"
+  ) => {
+    try {
+      const json = await callRefreshField({
+        entityType,
+        id: item.id,
+        field: "short_explanation",
+        action,
+      });
+
+      const updatedFields = (json.updatedFields || {}) as Partial<RefreshableItem>;
+      applyUpdatedFieldsLocally(entityType, item.id, updatedFields);
+      await maybeRefreshUsageVariantsAfterFieldRefresh(
+        entityType,
+        item.id,
+        updatedFields
+      );
+    } catch (error) {
+      console.error(error);
+      alert(
+        error instanceof Error ? error.message : "Could not refresh explanation."
+      );
+    }
+  };
+
+  const refreshExtraInfoField = async (
+    item: RefreshableItem,
+    entityType: RefreshEntityType
+  ) => {
+    try {
+      const json = await callRefreshField({
+        entityType,
+        id: item.id,
+        field: "extra_info",
+        action: "rewrite_format",
+      });
+
+      const updatedFields = (json.updatedFields || {}) as Partial<RefreshableItem>;
+      applyUpdatedFieldsLocally(entityType, item.id, updatedFields);
+      await maybeRefreshUsageVariantsAfterFieldRefresh(
+        entityType,
+        item.id,
+        updatedFields
+      );
+    } catch (error) {
+      console.error(error);
+      alert(
+        error instanceof Error ? error.message : "Could not refresh extra info."
+      );
+    }
+  };
+
+  const refreshDanishExampleField = async (
+    item: RefreshableItem,
+    entityType: RefreshEntityType,
+    action: "new_example" | "less_straightforward" | "more_natural" = "new_example"
+  ) => {
+    try {
+      const json = await callRefreshField({
+        entityType,
+        id: item.id,
+        field: "example_da",
+        action,
+      });
+
+      const updatedFields = (json.updatedFields || {}) as Partial<RefreshableItem>;
+      applyUpdatedFieldsLocally(entityType, item.id, updatedFields);
+      await maybeRefreshUsageVariantsAfterFieldRefresh(
+        entityType,
+        item.id,
+        updatedFields
+      );
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "Could not refresh example.");
+    }
+  };
+
+  const refreshEnglishExampleField = async (
+    item: RefreshableItem,
+    entityType: RefreshEntityType
+  ) => {
+    try {
+      const json = await callRefreshField({
+        entityType,
+        id: item.id,
+        field: "example_en",
+        action: "retranslate_from_danish",
+      });
+
+      const updatedFields = (json.updatedFields || {}) as Partial<RefreshableItem>;
+      applyUpdatedFieldsLocally(entityType, item.id, updatedFields);
+      await maybeRefreshUsageVariantsAfterFieldRefresh(
+        entityType,
+        item.id,
+        updatedFields
+      );
+    } catch (error) {
+      console.error(error);
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Could not refresh English example."
+      );
+    }
   };
 
   const resetMeaningPicker = () => {
@@ -749,6 +1092,7 @@ export default function Home() {
         example_en: lookupResult.example_en,
         extra_info: lookupResult.extra_info,
         tags: [],
+        meanings: [lookupResult.translation_en],
         created_at: new Date().toISOString(),
         source: "lookup",
       };
@@ -824,6 +1168,7 @@ export default function Home() {
       example_en: parsed.example_en,
       extra_info: parsed.extra_info,
       tags: normalizedTags,
+      meanings: [parsed.translation_en],
       created_at: new Date().toISOString(),
       source: "phrase_input",
     };
@@ -1026,6 +1371,7 @@ export default function Home() {
       extra_info: draftCard.extra_info,
       created_at: new Date().toISOString(),
       tags: normalizedTags,
+      meanings: [draftCard.translation_en],
       times_attempted: 0,
       times_correct: 0,
       times_almost: 0,
@@ -1043,10 +1389,10 @@ export default function Home() {
     const { error } = await supabase.from("phrases").insert(newCard);
 
     if (error) {
-  console.error("Save phrase error:", error);
-  alert(`Could not save the phrase: ${error.message}`);
-  return;
-}
+      console.error("Save phrase error:", error);
+      alert(`Could not save the phrase: ${error.message}`);
+      return;
+    }
 
     await replaceUsageVariantsForPhrase(newCard.id, {
       phrase: newCard.phrase,
@@ -1572,6 +1918,7 @@ export default function Home() {
       extra_info: draft.extra_info,
       created_at: new Date().toISOString(),
       tags: Array.from(new Set(draft.tags.map(normalizeTag).filter(Boolean))),
+      meanings: draft.meanings ?? [draft.translation_en],
       times_attempted: 0,
       times_correct: 0,
       times_almost: 0,
@@ -1589,10 +1936,10 @@ export default function Home() {
     const { error: insertError } = await supabase.from("phrases").insert(newCard);
 
     if (insertError) {
-  console.error("Save pending draft error:", insertError);
-  alert(`Could not save draft to database: ${insertError.message}`);
-  return;
-}
+      console.error("Save pending draft error:", insertError);
+      alert(`Could not save draft to database: ${insertError.message}`);
+      return;
+    }
 
     await replaceUsageVariantsForPhrase(newCard.id, {
       phrase: newCard.phrase,
@@ -2414,11 +2761,168 @@ export default function Home() {
 
               {expanded && (
                 <div style={{ marginTop: 12 }}>
-                  <p><b>Translation:</b> {draft.translation_en}</p>
-                  <p><b>Forklaring:</b> {draft.short_explanation}</p>
-                  <p><b>Eksempel:</b> {draft.example_da}</p>
-                  <p><b>Example:</b> {draft.example_en}</p>
-                  <p><b>Extra info:</b> {draft.extra_info || "—"}</p>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          marginBottom: 4,
+                        }}
+                      >
+                        <b>Translation:</b>
+                        <span>{draft.translation_en}</span>
+                        <button
+                          type="button"
+                          className="button-secondary button-small"
+                          onClick={() => void openMeaningCandidatesForItem(draft, "draft")}
+                          disabled={refreshingKey === getRefreshKey(draft.id, "translation_en")}
+                        >
+                          {refreshingKey === getRefreshKey(draft.id, "translation_en")
+                            ? "Loading..."
+                            : "Change meaning"}
+                        </button>
+                      </div>
+
+                      {draft.meanings && draft.meanings.length > 0 && (
+                        <div className="meta-text">
+                          Known meanings: {draft.meanings.join(" · ")}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          marginBottom: 4,
+                        }}
+                      >
+                        <b>Forklaring:</b>
+                        <button
+                          type="button"
+                          className="button-secondary button-small"
+                          onClick={() =>
+                            void refreshExplanationField(draft, "draft", "rewrite_shorter")
+                          }
+                          disabled={refreshingKey === getRefreshKey(draft.id, "short_explanation")}
+                        >
+                          shorter
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary button-small"
+                          onClick={() =>
+                            void refreshExplanationField(draft, "draft", "rewrite_clearer")
+                          }
+                          disabled={refreshingKey === getRefreshKey(draft.id, "short_explanation")}
+                        >
+                          clearer
+                        </button>
+                      </div>
+                      <div>{draft.short_explanation}</div>
+                    </div>
+
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          marginBottom: 4,
+                        }}
+                      >
+                        <b>Eksempel:</b>
+                        <button
+                          type="button"
+                          className="button-secondary button-small"
+                          onClick={() =>
+                            void refreshDanishExampleField(draft, "draft", "new_example")
+                          }
+                          disabled={refreshingKey === getRefreshKey(draft.id, "example_da")}
+                        >
+                          new
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary button-small"
+                          onClick={() =>
+                            void refreshDanishExampleField(
+                              draft,
+                              "draft",
+                              "less_straightforward"
+                            )
+                          }
+                          disabled={refreshingKey === getRefreshKey(draft.id, "example_da")}
+                        >
+                          less straightforward
+                        </button>
+                        <button
+                          type="button"
+                          className="button-secondary button-small"
+                          onClick={() =>
+                            void refreshDanishExampleField(draft, "draft", "more_natural")
+                          }
+                          disabled={refreshingKey === getRefreshKey(draft.id, "example_da")}
+                        >
+                          more natural
+                        </button>
+                      </div>
+                      <div>{draft.example_da}</div>
+                    </div>
+
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          marginBottom: 4,
+                        }}
+                      >
+                        <b>Example:</b>
+                        <button
+                          type="button"
+                          className="button-secondary button-small"
+                          onClick={() => void refreshEnglishExampleField(draft, "draft")}
+                          disabled={refreshingKey === getRefreshKey(draft.id, "example_en")}
+                        >
+                          retranslate
+                        </button>
+                      </div>
+                      <div>{draft.example_en}</div>
+                    </div>
+
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          flexWrap: "wrap",
+                          marginBottom: 4,
+                        }}
+                      >
+                        <b>Extra info:</b>
+                        <button
+                          type="button"
+                          className="button-secondary button-small"
+                          onClick={() => void refreshExtraInfoField(draft, "draft")}
+                          disabled={refreshingKey === getRefreshKey(draft.id, "extra_info")}
+                        >
+                          reformat
+                        </button>
+                      </div>
+                      <div>{draft.extra_info || "—"}</div>
+                    </div>
+                  </div>
 
                   <div
                     style={{
@@ -2947,11 +3451,168 @@ export default function Home() {
 
             {expanded && (
               <div style={{ marginTop: 12 }}>
-                <p><b>Translation:</b> {card.translation_en}</p>
-                <p><b>Forklaring:</b> {card.short_explanation}</p>
-                <p><b>Eksempel:</b> {card.example_da}</p>
-                <p><b>Example:</b> {card.example_en}</p>
-                <p><b>Extra info:</b> {card.extra_info || "—"}</p>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <b>Translation:</b>
+                      <span>{card.translation_en}</span>
+                      <button
+                        type="button"
+                        className="button-secondary button-small"
+                        onClick={() => void openMeaningCandidatesForItem(card, "phrase")}
+                        disabled={refreshingKey === getRefreshKey(card.id, "translation_en")}
+                      >
+                        {refreshingKey === getRefreshKey(card.id, "translation_en")
+                          ? "Loading..."
+                          : "Change meaning"}
+                      </button>
+                    </div>
+
+                    {card.meanings && card.meanings.length > 0 && (
+                      <div className="meta-text">
+                        Known meanings: {card.meanings.join(" · ")}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <b>Forklaring:</b>
+                      <button
+                        type="button"
+                        className="button-secondary button-small"
+                        onClick={() =>
+                          void refreshExplanationField(card, "phrase", "rewrite_shorter")
+                        }
+                        disabled={refreshingKey === getRefreshKey(card.id, "short_explanation")}
+                      >
+                        shorter
+                      </button>
+                      <button
+                        type="button"
+                        className="button-secondary button-small"
+                        onClick={() =>
+                          void refreshExplanationField(card, "phrase", "rewrite_clearer")
+                        }
+                        disabled={refreshingKey === getRefreshKey(card.id, "short_explanation")}
+                      >
+                        clearer
+                      </button>
+                    </div>
+                    <div>{card.short_explanation}</div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <b>Eksempel:</b>
+                      <button
+                        type="button"
+                        className="button-secondary button-small"
+                        onClick={() =>
+                          void refreshDanishExampleField(card, "phrase", "new_example")
+                        }
+                        disabled={refreshingKey === getRefreshKey(card.id, "example_da")}
+                      >
+                        new
+                      </button>
+                      <button
+                        type="button"
+                        className="button-secondary button-small"
+                        onClick={() =>
+                          void refreshDanishExampleField(
+                            card,
+                            "phrase",
+                            "less_straightforward"
+                          )
+                        }
+                        disabled={refreshingKey === getRefreshKey(card.id, "example_da")}
+                      >
+                        less straightforward
+                      </button>
+                      <button
+                        type="button"
+                        className="button-secondary button-small"
+                        onClick={() =>
+                          void refreshDanishExampleField(card, "phrase", "more_natural")
+                        }
+                        disabled={refreshingKey === getRefreshKey(card.id, "example_da")}
+                      >
+                        more natural
+                      </button>
+                    </div>
+                    <div>{card.example_da}</div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <b>Example:</b>
+                      <button
+                        type="button"
+                        className="button-secondary button-small"
+                        onClick={() => void refreshEnglishExampleField(card, "phrase")}
+                        disabled={refreshingKey === getRefreshKey(card.id, "example_en")}
+                      >
+                        retranslate
+                      </button>
+                    </div>
+                    <div>{card.example_en}</div>
+                  </div>
+
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flexWrap: "wrap",
+                        marginBottom: 4,
+                      }}
+                    >
+                      <b>Extra info:</b>
+                      <button
+                        type="button"
+                        className="button-secondary button-small"
+                        onClick={() => void refreshExtraInfoField(card, "phrase")}
+                        disabled={refreshingKey === getRefreshKey(card.id, "extra_info")}
+                      >
+                        reformat
+                      </button>
+                    </div>
+                    <div>{card.extra_info || "—"}</div>
+                  </div>
+                </div>
 
                 <div
                   style={{
@@ -3270,6 +3931,103 @@ export default function Home() {
               ))}
             </div>
           )}
+        </div>
+      </div>
+    )}
+
+    {refreshMeaningPicker.open && refreshMeaningPicker.itemId && refreshMeaningPicker.entityType && (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15, 23, 42, 0.45)",
+          zIndex: 220,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16,
+        }}
+        onClick={closeRefreshMeaningPicker}
+      >
+        <div
+          className="card"
+          style={{
+            width: "100%",
+            maxWidth: 760,
+            maxHeight: "85vh",
+            overflowY: "auto",
+            margin: 0,
+            padding: 20,
+            boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              gap: 12,
+              marginBottom: 14,
+            }}
+          >
+            <div>
+              <h2 className="section-title" style={{ marginBottom: 6 }}>
+                Choose meaning for this card
+              </h2>
+              <div className="meta-text">
+                Pick one of the existing or newly generated meaning options.
+              </div>
+            </div>
+
+            <button
+              onClick={closeRefreshMeaningPicker}
+              className="button-secondary"
+            >
+              Close
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gap: 12 }}>
+            {refreshMeaningPicker.candidates.map((candidate, index) => (
+              <div
+                key={`${candidate}-${index}`}
+                className="mini-box"
+                style={{
+                  margin: 0,
+                  padding: 14,
+                  border: "1px solid #e5e7eb",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>{candidate}</div>
+
+                <button
+                  type="button"
+                  className="button-primary"
+                  onClick={() =>
+                    void chooseMeaningForItem(
+                      refreshMeaningPicker.itemId!,
+                      refreshMeaningPicker.entityType!,
+                      candidate
+                    )
+                  }
+                >
+                  Choose this meaning
+                </button>
+              </div>
+            ))}
+
+            {refreshMeaningPicker.candidates.length === 0 && (
+              <div className="mini-box" style={{ margin: 0 }}>
+                No meaning candidates available.
+              </div>
+            )}
+          </div>
         </div>
       </div>
     )}
