@@ -186,11 +186,25 @@ export default function PracticePage() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [showEnglishInHover, setShowEnglishInHover] = useState(false);
 
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpPhraseId, setHelpPhraseId] = useState<string | null>(null);
+  const [helpUsedByPhraseId, setHelpUsedByPhraseId] = useState<Record<string, boolean>>({});
+
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const draftSavedTimeoutRef = useRef<number | null>(null);
   const secondOpinionTimeoutRef = useRef<number | null>(null);
   const lookupInputRef = useRef<HTMLInputElement | null>(null);
+
+  const getCountedStatusWithHelp = (
+    phraseId: string,
+    rawStatus: PhraseFeedback["status"],
+    helpUsedByPhraseId: Record<string, boolean>
+  ): PhraseFeedback["status"] => {
+    if (!helpUsedByPhraseId[phraseId]) return rawStatus;
+    if (rawStatus === "correct") return "almost";
+    return rawStatus;
+  };
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -836,6 +850,9 @@ export default function PracticePage() {
     setRetryState(null);
     setReviewingSecondOpinion(false);
     setSecondOpinionNote(null);
+    setHelpOpen(false);
+    setHelpPhraseId(null);
+    setHelpUsedByPhraseId({});
 
     if (draftSavedTimeoutRef.current !== null) {
       window.clearTimeout(draftSavedTimeoutRef.current);
@@ -997,7 +1014,8 @@ export default function PracticePage() {
     prevCards: PhraseCard[],
     oldFeedback: PhraseFeedback[],
     newFeedback: PhraseFeedback[],
-    nowIso: string
+    nowIso: string,
+    helpUsedByPhraseId: Record<string, boolean>
   ) => {
     const oldStatusMap = getFeedbackStatusMap(oldFeedback);
     const newStatusMap = getFeedbackStatusMap(newFeedback);
@@ -1005,7 +1023,14 @@ export default function PracticePage() {
     return prevCards.map((card) => {
       const oldStatus = oldStatusMap.get(card.id) ?? "unused";
       const rawNewStatus = newStatusMap.get(card.id) ?? "unused";
-      const newCountedStatus = getCountedRetryStatus(oldStatus, rawNewStatus);
+
+      const helpedNewStatus = getCountedStatusWithHelp(
+        card.id,
+        rawNewStatus,
+        helpUsedByPhraseId
+      );
+
+      const newCountedStatus = getCountedRetryStatus(oldStatus, helpedNewStatus);
 
       const oldAttempted = oldStatus !== "unused" ? 1 : 0;
       const newAttempted = newCountedStatus !== "unused" ? 1 : 0;
@@ -1025,6 +1050,7 @@ export default function PracticePage() {
 
       const shouldCountRetryCorrect =
         rawNewStatus === "correct" &&
+        !helpUsedByPhraseId[card.id] &&
         (oldStatus === "wrong" || oldStatus === "almost");
 
       if (
@@ -1121,7 +1147,13 @@ export default function PracticePage() {
 
       if (retryState) {
         void applyCardUpdates((prevCards) =>
-          reconcileRetryStats(prevCards, retryState.originalFeedback, rawFeedback, nowIso)
+          reconcileRetryStats(
+            prevCards,
+            retryState.originalFeedback,
+            rawFeedback,
+            nowIso,
+            helpUsedByPhraseId
+          )
         );
         setRetryState(null);
       } else {
@@ -1139,17 +1171,23 @@ export default function PracticePage() {
             };
 
             if (!isSpontaneous) {
+              const countedStatus = getCountedStatusWithHelp(
+                card.id,
+                item.status,
+                helpUsedByPhraseId
+              );
+
               updated.times_attempted = (card.times_attempted ?? 0) + 1;
 
-              if (item.status === "correct") {
+              if (countedStatus === "correct") {
                 updated.times_correct = (card.times_correct ?? 0) + 1;
               }
 
-              if (item.status === "almost") {
+              if (countedStatus === "almost") {
                 updated.times_almost = (card.times_almost ?? 0) + 1;
               }
 
-              if (item.status === "wrong") {
+              if (countedStatus === "wrong") {
                 updated.times_wrong = (card.times_wrong ?? 0) + 1;
               }
             }
@@ -1653,6 +1691,23 @@ export default function PracticePage() {
         )}
       </>
     );
+  };
+
+  const openHelp = () => {
+    setHelpOpen(true);
+    setHelpPhraseId(null);
+  };
+
+  const closeHelp = () => {
+    setHelpOpen(false);
+  };
+
+  const chooseHelpPhrase = (phraseId: string) => {
+    setHelpPhraseId(phraseId);
+    setHelpUsedByPhraseId((prev) => ({
+      ...prev,
+      [phraseId]: true,
+    }));
   };
 
   const latestUserMessageIndex =
@@ -2217,9 +2272,23 @@ export default function PracticePage() {
                     >
                       <span>{getPhraseStatusSymbol(card.id)}</span>
 
-                      <span style={{ fontWeight: 500 }}>
-                        {card.phrase}
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontWeight: 500 }}>{card.phrase}</span>
+
+                        {helpUsedByPhraseId[card.id] && (
+                          <span
+                            className="badge"
+                            style={{
+                              backgroundColor: "#fef3c7",
+                              color: "#92400e",
+                              fontSize: 11,
+                              padding: "2px 6px",
+                            }}
+                          >
+                            help
+                          </span>
+                        )}
+                      </div>
 
                       {hoveredPhraseId === card.id && (
                         <div
@@ -2237,9 +2306,7 @@ export default function PracticePage() {
                             boxShadow: "0 8px 20px rgba(0,0,0,0.12)",
                           }}
                         >
-                          <div style={{ fontWeight: 600 }}>
-                            {card.phrase}
-                          </div>
+                          <div style={{ fontWeight: 600 }}>{card.phrase}</div>
 
                           {showEnglishInHover && (
                             <div style={{ marginTop: 4, fontWeight: 500 }}>
@@ -2492,6 +2559,16 @@ export default function PracticePage() {
                           Fix
                         </button>
                       )}
+
+                    {selectedCards.length > 0 && (
+                      <button
+                        onClick={openHelp}
+                        disabled={loading}
+                        className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
+                      >
+                        Help!
+                      </button>
+                    )}
                   </div>
 
                   <div className="send-button-wrap">
@@ -2686,6 +2763,81 @@ export default function PracticePage() {
               ))}
           </ul>
         )}
+      </div>
+    )}
+
+    {helpOpen && (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15, 23, 42, 0.45)",
+          zIndex: 300,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16,
+        }}
+        onClick={closeHelp}
+      >
+        <div
+          className="card"
+          style={{
+            width: "100%",
+            maxWidth: 600,
+            maxHeight: "80vh",
+            overflowY: "auto",
+            padding: 20,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ marginBottom: 12 }}>
+            <h2 className="section-title">Help</h2>
+            <div className="meta-text">
+              Choose a target phrase to see an example.
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+            {selectedCards.map((card) => (
+              <button
+                key={card.id}
+                onClick={() => chooseHelpPhrase(card.id)}
+                className="button-secondary"
+                style={{ textAlign: "left", justifyContent: "flex-start" }}
+              >
+                {card.phrase}
+              </button>
+            ))}
+          </div>
+
+          {helpPhraseId && (() => {
+            const card = selectedCards.find((c) => c.id === helpPhraseId);
+            if (!card) return null;
+
+            return (
+              <div className="mini-box" style={{ marginBottom: 0 }}>
+                <p style={{ marginBottom: 8 }}>
+                  <b>{card.phrase}</b>
+                </p>
+                <p style={{ marginBottom: 8 }}>{card.example_da}</p>
+                <p className="meta-text" style={{ marginBottom: 0 }}>
+                  {card.example_en}
+                </p>
+
+                <div className="meta-text" style={{ marginTop: 10 }}>
+                  Using help marks this phrase as assisted in this session.
+                </div>
+              </div>
+            );
+          })()}
+
+          <div style={{ marginTop: 16 }}>
+            <button onClick={closeHelp} className="button-primary">
+              Close
+            </button>
+          </div>
+        </div>
       </div>
     )}
 
