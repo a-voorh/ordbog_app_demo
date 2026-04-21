@@ -4,6 +4,10 @@ import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../lib/supabase";
 
+// Introducing the phrase card format: we remember the phrase itself, 
+// its id in the database, translation to EN, explanation in DA, 
+// example in DA and its translation to EN, extra info and stats about usage attempts.
+
 type PhraseCard = {
   id: string;
   phrase: string;
@@ -29,6 +33,9 @@ type PhraseCard = {
   last_requested_again_at?: string | null;
 };
 
+// Before saving the card into database, we deal with the drafts. This type is the pending draft, 
+// that means that the user wants to save the phrase, but don't have time to look at it at the moment. 
+
 type PendingDraft = {
   id: string;
   phrase: string;
@@ -43,6 +50,9 @@ type PendingDraft = {
   source: string;
 };
 
+// This is the type we need when we ask the app to analyze the phrase. 
+// We do not assume that the user will necessarily want to save the phrase they looked up. 
+
 type AnalysisResult = {
   corrected_phrase: string;
   translation_en: string;
@@ -51,6 +61,8 @@ type AnalysisResult = {
   example_en: string;
   extra_info: string;
 };
+
+// This one is for looking up the phrase in English first. 
 
 type LookupResult = {
   corrected_phrase: string;
@@ -61,22 +73,30 @@ type LookupResult = {
   extra_info: string;
 };
 
-type MeaningOption = {
-  translation_en: string;
-  short_explanation_da: string;
-  example_da: string;
-};
+// User gave us a phrase, and we prepare a list of possible meanings they might be interested in. 
 
 type MeaningDetectionResult = {
   phrase: string;
   options: MeaningOption[];
 };
 
+// User needs to choose the meaning he wants to save the phrase under.
+
 type PendingMeaningChoice = {
   source: "draft" | "pending";
   rawPhrase: string;
   normalizedTags: string[];
 };
+
+// Each option is encoded by its meaning, its explanation in Danish and an example.
+
+type MeaningOption = {
+  translation_en: string;
+  short_explanation_da: string;
+  example_da: string;
+};
+
+// The temporary inline edit version of the text fields of a word card. 
 
 type EditDraft = {
   phrase: string;
@@ -86,6 +106,9 @@ type EditDraft = {
   example_en: string;
   extra_info: string;
 };
+
+// A draft card currently shown in the UI (before saving to database).
+// This is what the user reviews and edits.
 
 type DraftCard = {
   phrase: string;
@@ -97,15 +120,23 @@ type DraftCard = {
   tags: string[];
 };
 
+// One alternative way the phrase can appear in real usage.
+// Used to generate more varied examples.
+
 type GeneratedUsageVariant = {
   variant_da: string;
   variant_tag?: string | null;
 };
 
+// The database is big, so we don't necessarily want to show it all, instead, by default, we show the user the top 10 phrases requiring attention.
+// Maybe I could add other categories here... 
 type DatabaseViewMode = "attention" | "all";
+
+// Tells whether we are updating a saved phrase or a draft.
 
 type RefreshEntityType = "phrase" | "draft";
 
+// Sometimes the user wants to refresh specific lines of the phrase card using AI (thus not typing them manually) while keeping the rest of the card intact.
 type RefreshField =
   | "translation_en"
   | "short_explanation"
@@ -113,6 +144,7 @@ type RefreshField =
   | "example_da"
   | "example_en";
 
+ // What kind of improvement we want for that field.
 type RefreshAction =
   | "generate_meaning_candidates"
   | "set_meaning"
@@ -124,31 +156,47 @@ type RefreshAction =
   | "more_natural"
   | "retranslate_from_danish";
 
+
+// Something that can be updated via the refresh system (either a phrase or a draft).
 type RefreshableItem = PhraseCard | PendingDraft;
 
-type RefreshMeaningPickerState = {
-  open: boolean;
-  itemId: string | null;
-  entityType: RefreshEntityType | null;
-  candidates: string[];
-};
+// State of the "choose meaning" modal.
+// Either closed, or open with data about the current item and options.
 
-  const refreshButtonStyle = (isLoading: boolean) =>
-    ({
-      opacity: isLoading ? 0.7 : 1,
-      cursor: isLoading ? "wait" : "pointer",
-      transform: isLoading ? "scale(0.98)" : "scale(1)",
-      transition: "all 0.15s ease",
-    }) as const;
+type RefreshMeaningPickerState =
+  | { open: false }
+  | {
+      open: true;
+      itemId: string;
+      entityType: RefreshEntityType;
+      candidates: string[];
+    };
 
-const normalizeTag = (tag: string) => tag.trim();
 
-const normalizePhraseKey = (value: string) =>
+// Returns styles that make a button look busy/pressed while loading.
+const refreshButtonStyle = (isLoading: boolean) =>
+  ({
+    opacity: isLoading ? 0.6 : 1,
+    cursor: isLoading ? "not-allowed" : "pointer",
+    transform: isLoading ? "scale(0.97)" : "scale(1)",
+    transition: "all 0.15s ease",
+  }) as const;
+
+
+
+// Normalizes text for consistent storage and comparison
+const normalizeText = (value: string) =>
   value.trim().toLowerCase().replace(/\s+/g, " ");
 
+// Normalizing tags, phrases and english translations
+const normalizeTag = normalizeText;
+const normalizePhraseKey = normalizeText;
 const normalizeMeaningKey = (value?: string | null) =>
-  (value || "").trim().toLowerCase().replace(/\s+/g, " ");
+  normalizeText(value || "");
 
+// Avoid duplicates: we can save the same phrase many times, but only under different meanings. 
+// Example: knap (button) and knap (hardly, barely)
+// When comparing contents of the cards, all strings get normalized
 const isSamePhraseMeaning = (
   a: { phrase: string; translation_en?: string | null },
   b: { phrase: string; translation_en?: string | null }
@@ -156,7 +204,10 @@ const isSamePhraseMeaning = (
   normalizePhraseKey(a.phrase) === normalizePhraseKey(b.phrase) &&
   normalizeMeaningKey(a.translation_en) === normalizeMeaningKey(b.translation_en);
 
+// Ignore "at" when sorting the phrases
 const sortKeyDa = (phrase: string) => phrase.trim().replace(/^at\s+/i, "");
+
+// Sort alphabetically by Danish phrase, if phrases are equal, sort by English meaning. 
 
 const sortByPhraseDa = <T extends { phrase: string; translation_en?: string }>(
   items: T[]
@@ -170,6 +221,8 @@ const sortByPhraseDa = <T extends { phrase: string; translation_en?: string }>(
     return (a.translation_en || "").localeCompare(b.translation_en || "", "en");
   });
 
+// Generates a stable numeric hash from a string (used for consistent mapping, e.g. colors)
+
 function hashString(value: string) {
   let hash = 0;
   for (let i = 0; i < value.length; i++) {
@@ -177,6 +230,8 @@ function hashString(value: string) {
   }
   return hash;
 }
+
+// Predefined color styles for tags (used with hashing to assign consistent colors)
 
 const TAG_PALETTE = [
   { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
@@ -276,13 +331,8 @@ export default function Home() {
   const [meaningOptions, setMeaningOptions] = useState<MeaningOption[]>([]);
   const [pendingMeaningChoice, setPendingMeaningChoice] = useState<PendingMeaningChoice | null>(null);
 
-  const [refreshMeaningPicker, setRefreshMeaningPicker] =
-    useState<RefreshMeaningPickerState>({
-      open: false,
-      itemId: null,
-      entityType: null,
-      candidates: [],
-    });
+const [refreshMeaningPicker, setRefreshMeaningPicker] =
+  useState<RefreshMeaningPickerState>({ open: false });
 
   const [refreshingKey, setRefreshingKey] = useState<string | null>(null);
 
@@ -372,15 +422,13 @@ export default function Home() {
     daysSinceIso(card.last_practiced_at);
 
   const masteryPoints = (card: PhraseCard) => {
-    const promptedCorrect = correctOf(card) * 1.0;
-    const promptedAlmost = almostOf(card) * 0.6;
-    const promptedWrong = wrongOf(card) * -1.0;
-
-    const spontaneousCorrect = spontaneousCorrectOf(card) * 2.0;
-    const spontaneousAlmost = spontaneousAlmostOf(card) * 1.2;
-    const spontaneousWrong = spontaneousWrongOf(card) * 0.0;
-
-    const retryCorrect = retryCorrectOf(card) * 0.3;
+    const promptedCorrect = correctOf(card) * 1.3;
+    const promptedAlmost = almostOf(card) * 0.8;
+    const promptedWrong = wrongOf(card) * -0.6;
+    const spontaneousCorrect = spontaneousCorrectOf(card) * 2.3;
+    const spontaneousAlmost = spontaneousAlmostOf(card) * 1.4;
+    const spontaneousWrong = spontaneousWrongOf(card) * -0.2;
+    const retryCorrect = retryCorrectOf(card) * 0.5;
 
     const total =
       promptedCorrect +
@@ -561,12 +609,7 @@ export default function Home() {
   };
 
   const closeRefreshMeaningPicker = () => {
-    setRefreshMeaningPicker({
-      open: false,
-      itemId: null,
-      entityType: null,
-      candidates: [],
-    });
+   setRefreshMeaningPicker({ open: false });
   };
 
   const maybeRefreshUsageVariantsAfterFieldRefresh = async (
@@ -675,17 +718,21 @@ export default function Home() {
         selectedMeaning,
       });
 
-      const updatedMeaningList = Array.from(
-        new Set(
-          [
-            ...(item.meanings ?? []),
-            ...refreshMeaningPicker.candidates,
-            selectedMeaning,
-          ]
-            .map((x) => x.trim())
-            .filter(Boolean)
-        )
-      );
+     const pickerCandidates = refreshMeaningPicker.open
+  ? refreshMeaningPicker.candidates
+  : [];
+
+const updatedMeaningList = Array.from(
+  new Set(
+    [
+      ...(item.meanings ?? []),
+      ...pickerCandidates,
+      selectedMeaning,
+    ]
+      .map((x) => x.trim())
+      .filter(Boolean)
+  )
+);
 
       const updatedFields: Partial<RefreshableItem> = {
         ...(json.updatedFields || {}),
