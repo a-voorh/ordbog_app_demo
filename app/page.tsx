@@ -256,6 +256,8 @@ const TAG_PALETTE = [
   { bg: "#ecfeff", text: "#0f766e", border: "#5eead4" },
 ];
 
+// Returns a consistent color style for a tag based on its hash
+
 function tagPillStyle(tag: string) {
   const colors = TAG_PALETTE[hashString(tag.toLowerCase()) % TAG_PALETTE.length];
   return {
