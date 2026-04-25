@@ -40,6 +40,8 @@ type PhraseFeedbackItem = {
   correctedSentence: string;
 };
 
+const MODEL = "gpt-4.1-mini";
+
 const normalizeText = (value: string) =>
   value
     .toLowerCase()
@@ -106,18 +108,105 @@ const assistantBreaksRole = (reply: string) => {
     "jeg boede",
     "jeg kom til",
     "jeg blev nødt til",
-    "jeg skal",
-    "jeg skulle",
-    "jeg må",
-    "jeg måtte",
-    "jeg arbejder",
-    "jeg studerer",
   ];
 
   return badNarrativePatterns.some((pattern) =>
     normalized.includes(pattern)
   );
 };
+
+const defaultPhraseFeedback = (
+  phraseId: string,
+  phrase: string
+): PhraseFeedbackItem => ({
+  phraseId,
+  phrase,
+  status: "unused",
+  comment: "",
+  suggestion: "",
+  detectedText: "",
+  sentenceIssue: "none",
+  sentenceComment: "",
+  correctedSentence: "",
+});
+
+const buildAssistantSystemPrompt = (phraseList: string[]) => `
+You are a friendly Danish conversation partner for a learner.
+
+The learner should get natural chances to use these saved Danish phrases:
+${phraseList.map((p) => `- ${p}`).join("\n")}
+
+Your role:
+You are the OTHER speaker in the conversation.
+
+The learner talks about their own life and experiences.
+You respond as another person in the conversation.
+
+Never reply as if you are the learner.
+Never describe the learner's situation as if it were your own.
+Do not continue the learner's sentence for them.
+Do not paraphrase the learner's answer as if it were your own statement.
+
+Your job is to respond naturally to what the learner said and keep the conversation going.
+
+Good replies usually:
+- react briefly to what the learner said
+- ask a natural follow-up question
+- invite the learner to explain more
+- stay on the same topic
+
+Conversation rules:
+1. Continue the conversation naturally in Danish.
+2. Keep replies short and simple, usually 1-2 sentences.
+3. Ask natural follow-up questions when appropriate.
+4. Do NOT explicitly tell the learner to use the phrases.
+5. Do NOT mention that this is a test or practice.
+6. Avoid repeating the learner's sentence unless it sounds natural.
+7. If the learner writes a long message, reply briefly and do not summarize it.
+8. When starting a new conversation, prefer a concrete mini-scenario instead of a generic greeting.
+
+Target phrase handling:
+- NEVER use a target phrase yourself.
+- Prefer to create situations where the learner might use the phrase.
+- Do not help the learner by demonstrating the phrase.
+- Even if a target phrase would sound natural here, do not use it.
+
+Good examples of scenario openings:
+- Du møder en ven på en café. Hvad taler I om?
+- Du er på arbejde og taler med en kollega. Hvordan starter samtalen?
+- Du står og venter på bussen. Hvad siger du til personen ved siden af?
+
+Do not label the scenario explicitly. Just start naturally in Danish.
+`;
+
+const buildRewritePrompt = (phraseList: string[]) => `
+You are rewriting a Danish assistant reply.
+
+Your goal:
+- keep the reply natural, short, and helpful
+- keep the same general scenario and conversational intent
+- keep it to 1-2 sentences
+- the assistant must remain clearly the OTHER speaker in the conversation
+- the assistant must NOT speak as if it is the learner
+- the assistant must NOT describe the learner's life as its own
+- the assistant must NOT continue the learner's sentence as if it belonged in the learner's mouth
+- prefer a brief reaction, a follow-up question, or a conversational response
+
+Target phrase constraints:
+- do NOT use any of the forbidden target phrases
+- do NOT use grammatical forms of those phrases, including conjugations, tense changes, plural forms, derived forms, or close repeats
+- do NOT use those phrases without leading "at" either
+
+Style constraints:
+- do NOT mention that you are avoiding anything
+- do NOT become awkward or robotic
+- keep the reply conversational and simple
+
+Forbidden target phrases:
+${phraseList.map((p) => `- ${p}`).join("\n")}
+
+Return only the rewritten Danish reply as plain text.
+`;
 
 const buildSinglePhrasePrompt = ({
   phrase,
@@ -370,24 +459,347 @@ Return ONLY valid JSON with exactly this structure:
 }`;
 };
 
-const defaultPhraseFeedback = (
-  phraseId: string,
-  phrase: string
-): PhraseFeedbackItem => ({
-  phraseId,
-  phrase,
-  status: "unused",
-  comment: "",
-  suggestion: "",
-  detectedText: "",
-  sentenceIssue: "none",
-  sentenceComment: "",
-  correctedSentence: "",
-});
+const parseCards = (cards: unknown): IncomingPhraseCard[] => {
+  if (!Array.isArray(cards)) return [];
+
+  return cards
+    .filter(
+      (card: any) =>
+        card &&
+        typeof card.id === "string" &&
+        typeof card.phrase === "string"
+    )
+    .map((card: any) => ({
+      id: card.id,
+      phrase: card.phrase,
+      translation_en:
+        typeof card.translation_en === "string" ? card.translation_en : "",
+      short_explanation:
+        typeof card.short_explanation === "string"
+          ? card.short_explanation
+          : "",
+    }));
+};
+
+const buildConversationMessages = ({
+  phraseList,
+  history,
+  userMessage,
+}: {
+  phraseList: string[];
+  history: ChatMessage[];
+  userMessage: string;
+}) => {
+  const messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }> = [
+    {
+      role: "system",
+      content: buildAssistantSystemPrompt(phraseList),
+    },
+  ];
+
+  for (const msg of history) {
+    if (
+      msg &&
+      (msg.role === "user" || msg.role === "assistant") &&
+      typeof msg.content === "string"
+    ) {
+      messages.push({
+        role: msg.role,
+        content: msg.content,
+      });
+    }
+  }
+
+  if (userMessage.trim()) {
+    messages.push({
+      role: "user",
+      content: userMessage,
+    });
+  }
+
+  return messages;
+};
+
+const loadPhraseVariants = async ({
+  supabase,
+  cards,
+}: {
+  supabase: any;
+  cards: IncomingPhraseCard[];
+}): Promise<PhraseWithVariants[]> => {
+  const phraseIds = cards.map((card) => card.id);
+
+  const basePhrases = cards.map((card) => ({
+    id: card.id,
+    phrase: card.phrase,
+    translation_en: card.translation_en ?? "",
+    short_explanation: card.short_explanation ?? "",
+    matchingVariants: [],
+  }));
+
+  if (phraseIds.length === 0) return basePhrases;
+
+  const { data: variantRows, error: variantError } = await supabase
+    .from("phrase_usage_variants_main")
+    .select("phrase_id, variant_da, usable_for_matching")
+    .in("phrase_id", phraseIds)
+    .eq("usable_for_matching", true);
+
+  if (variantError) {
+    console.error("Failed to load phrase variants:", variantError);
+    return basePhrases;
+  }
+
+  const variantsByPhraseId = new Map<string, string[]>();
+
+  for (const row of (variantRows || []) as VariantRow[]) {
+    const variant = row.variant_da?.trim();
+    if (!variant) continue;
+
+    const existing = variantsByPhraseId.get(row.phrase_id) || [];
+    existing.push(variant);
+    variantsByPhraseId.set(row.phrase_id, existing);
+  }
+
+  return cards.map((card) => ({
+    id: card.id,
+    phrase: card.phrase,
+    translation_en: card.translation_en ?? "",
+    short_explanation: card.short_explanation ?? "",
+    matchingVariants: Array.from(new Set(variantsByPhraseId.get(card.id) || [])),
+  }));
+};
+
+const generateAssistantReply = async ({
+  openai,
+  phraseList,
+  history,
+  userMessage,
+}: {
+  openai: OpenAI;
+  phraseList: string[];
+  history: ChatMessage[];
+  userMessage: string;
+}) => {
+  const replyResponse = await openai.responses.create({
+    model: MODEL,
+    input: buildConversationMessages({ phraseList, history, userMessage }),
+    text: {
+      format: {
+        type: "text",
+      },
+    },
+  });
+
+  return (
+    replyResponse.output_text?.trim() ||
+    "Du møder en ven på en café. Hvordan går det?"
+  );
+};
+
+const rewriteAssistantReply = async ({
+  openai,
+  reply,
+  phraseList,
+}: {
+  openai: OpenAI;
+  reply: string;
+  phraseList: string[];
+}) => {
+  const rewriteResponse = await openai.responses.create({
+    model: MODEL,
+    input: [
+      {
+        role: "system",
+        content: buildRewritePrompt(phraseList),
+      },
+      {
+        role: "user",
+        content: reply,
+      },
+    ],
+    text: {
+      format: {
+        type: "text",
+      },
+    },
+  });
+
+  return rewriteResponse.output_text?.trim() || reply;
+};
+
+const needsAssistantRewrite = (reply: string, phraseList: string[]) =>
+  assistantReplyUsesForbiddenPhrase(reply, phraseList) ||
+  assistantReplySoundsLikeLearner(reply) ||
+  assistantBreaksRole(reply);
+
+const generateSafeAssistantReply = async ({
+  openai,
+  phraseList,
+  history,
+  userMessage,
+}: {
+  openai: OpenAI;
+  phraseList: string[];
+  history: ChatMessage[];
+  userMessage: string;
+}) => {
+  let reply = await generateAssistantReply({
+    openai,
+    phraseList,
+    history,
+    userMessage,
+  });
+
+  if (needsAssistantRewrite(reply, phraseList)) {
+    reply = await rewriteAssistantReply({
+      openai,
+      reply,
+      phraseList,
+    });
+  }
+
+  if (needsAssistantRewrite(reply, phraseList)) {
+    reply = await rewriteAssistantReply({
+      openai,
+      reply,
+      phraseList,
+    });
+  }
+
+  return reply;
+};
+
+const evaluateTargetPhrases = async ({
+  openai,
+  phrasesWithVariants,
+  userMessage,
+  previousAssistantMessage,
+}: {
+  openai: OpenAI;
+  phrasesWithVariants: PhraseWithVariants[];
+  userMessage: string;
+  previousAssistantMessage: string;
+}): Promise<PhraseFeedbackItem[]> => {
+  if (!userMessage.trim()) {
+    return phrasesWithVariants.map((item) =>
+      defaultPhraseFeedback(item.id, item.phrase)
+    );
+  }
+
+  return Promise.all(
+    phrasesWithVariants.map(async (phraseItem) => {
+      const singlePhraseResponse = await openai.responses.create({
+        model: MODEL,
+        input: [
+          {
+            role: "system",
+            content: buildSinglePhrasePrompt({
+              phrase: phraseItem.phrase,
+              translationEn: phraseItem.translation_en,
+              shortExplanation: phraseItem.short_explanation,
+              acceptedVariants: phraseItem.matchingVariants || [],
+            }),
+          },
+          {
+            role: "user",
+            content: `Previous assistant message:
+${previousAssistantMessage || "(none)"}
+
+Learner message:
+${userMessage}`,
+          },
+        ],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "single_phrase_feedback_response",
+            schema: {
+              type: "object",
+              properties: {
+                phrase: { type: "string" },
+                status: {
+                  type: "string",
+                  enum: ["correct", "almost", "wrong", "unused"],
+                },
+                comment: { type: "string" },
+                suggestion: { type: "string" },
+                detectedText: { type: "string" },
+                sentenceIssue: {
+                  type: "string",
+                  enum: ["none", "minor", "major"],
+                },
+                sentenceComment: { type: "string" },
+                correctedSentence: { type: "string" },
+              },
+              required: [
+                "phrase",
+                "status",
+                "comment",
+                "suggestion",
+                "detectedText",
+                "sentenceIssue",
+                "sentenceComment",
+                "correctedSentence",
+              ],
+              additionalProperties: false,
+            },
+          },
+        },
+      });
+
+      const rawText = singlePhraseResponse.output_text ?? "";
+
+      try {
+        const parsed = JSON.parse(rawText);
+
+        return {
+          phraseId: phraseItem.id,
+          phrase: phraseItem.phrase,
+          status: ["correct", "almost", "wrong", "unused"].includes(
+            parsed.status
+          )
+            ? parsed.status
+            : "unused",
+          comment: typeof parsed.comment === "string" ? parsed.comment : "",
+          suggestion:
+            typeof parsed.suggestion === "string" ? parsed.suggestion : "",
+          detectedText:
+            typeof parsed.detectedText === "string" ? parsed.detectedText : "",
+          sentenceIssue:
+            parsed.sentenceIssue === "minor" ||
+            parsed.sentenceIssue === "major"
+              ? parsed.sentenceIssue
+              : "none",
+          sentenceComment:
+            typeof parsed.sentenceComment === "string"
+              ? parsed.sentenceComment
+              : "",
+          correctedSentence:
+            typeof parsed.correctedSentence === "string"
+              ? parsed.correctedSentence
+              : "",
+        } satisfies PhraseFeedbackItem;
+      } catch (err) {
+        console.error(
+          "Failed to parse single phrase feedback JSON:",
+          phraseItem.phrase,
+          rawText,
+          err
+        );
+
+        return defaultPhraseFeedback(phraseItem.id, phraseItem.phrase);
+      }
+    })
+  );
+};
 
 export async function POST(req: Request) {
   try {
-    const client = new OpenAI({
+    const openai = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
 
@@ -397,34 +809,13 @@ export async function POST(req: Request) {
     );
 
     const body = await req.json();
-    const cards = body.cards || [];
-    const history = body.history || [];
-    const userMessage = body.userMessage || "";
 
-    if (!Array.isArray(cards) || cards.length === 0) {
-      return Response.json(
-        { error: "No phrase cards provided" },
-        { status: 400 }
-      );
-    }
-
-    const typedCards: IncomingPhraseCard[] = cards
-      .filter(
-        (card: any) =>
-          card &&
-          typeof card.id === "string" &&
-          typeof card.phrase === "string"
-      )
-      .map((card: any) => ({
-        id: card.id,
-        phrase: card.phrase,
-        translation_en:
-          typeof card.translation_en === "string" ? card.translation_en : "",
-        short_explanation:
-          typeof card.short_explanation === "string"
-            ? card.short_explanation
-            : "",
-      }));
+    const typedCards = parseCards(body.cards || []);
+    const history: ChatMessage[] = Array.isArray(body.history)
+      ? body.history
+      : [];
+    const userMessage =
+      typeof body.userMessage === "string" ? body.userMessage : "";
 
     if (typedCards.length === 0) {
       return Response.json(
@@ -433,429 +824,45 @@ export async function POST(req: Request) {
       );
     }
 
-    const phraseIds = typedCards.map((card) => card.id);
-    const phraseList: string[] = typedCards.map((card) => card.phrase);
+    const phraseList = typedCards.map((card) => card.phrase);
 
-    let phrasesWithVariants: PhraseWithVariants[] = typedCards.map((card) => ({
-      id: card.id,
-      phrase: card.phrase,
-      translation_en: card.translation_en ?? "",
-      short_explanation: card.short_explanation ?? "",
-      matchingVariants: [],
-    }));
-
-    if (phraseIds.length > 0) {
-      const { data: variantRows, error: variantError } = await supabase
-        .from("phrase_usage_variants_main")
-        .select("phrase_id, variant_da, usable_for_matching")
-        .in("phrase_id", phraseIds)
-        .eq("usable_for_matching", true);
-
-      if (variantError) {
-        console.error("Failed to load phrase variants:", variantError);
-      } else {
-        const variantsByPhraseId = new Map<string, string[]>();
-
-        for (const row of (variantRows || []) as VariantRow[]) {
-          const variant = row.variant_da?.trim();
-          if (!variant) continue;
-
-          const existing = variantsByPhraseId.get(row.phrase_id) || [];
-          existing.push(variant);
-          variantsByPhraseId.set(row.phrase_id, existing);
-        }
-
-        phrasesWithVariants = typedCards.map((card) => ({
-          id: card.id,
-          phrase: card.phrase,
-          translation_en: card.translation_en ?? "",
-          short_explanation: card.short_explanation ?? "",
-          matchingVariants: Array.from(
-            new Set(variantsByPhraseId.get(card.id) || [])
-          ),
-        }));
-      }
-    }
-
-    const conversationMessages: Array<{
-      role: "system" | "user" | "assistant";
-      content: string;
-    }> = [
-      {
-        role: "system",
-        content: `You are a friendly Danish conversation partner for a learner.
-
-The learner should get natural chances to use these saved Danish phrases:
-${phraseList.map((p) => `- ${p}`).join("\n")}
-
-Your role:
-You are the OTHER speaker in the conversation.
-
-The learner talks about their own life and experiences.
-You respond as another person in the conversation.
-
-Never reply as if you are the learner.
-Never describe the learner's situation as if it were your own.
-Do not continue the learner's sentence for them.
-Do not paraphrase the learner's answer as if it were your own statement.
-
-Stay clearly in the role of the conversation partner.
-
-Your job is to respond naturally to what the learner said and keep the conversation going.
-
-Good replies usually:
-- react briefly to what the learner said
-- ask a natural follow-up question
-- invite the learner to explain more
-- stay on the same topic
-
-Bad replies:
-- speaking as if you are the learner
-- inventing a new personal situation unrelated to the learner
-- ignoring the learner's message
-- writing a sentence that sounds like it belongs in the learner's mouth
-
-Conversation rules:
-1. Continue the conversation naturally in Danish.
-2. Keep replies short and simple, usually 1-2 sentences.
-3. Ask natural follow-up questions when appropriate.
-4. Do NOT explicitly tell the learner to use the phrases.
-5. Do NOT mention that this is a test or practice.
-6. Avoid repeating the learner's sentence unless it sounds natural.
-7. If the learner writes a long message, reply briefly and do not summarize it.
-8. When starting a new conversation, prefer a concrete mini-scenario instead of a generic greeting.
-
-Target phrase handling:
-- NEVER use a target phrase yourself.
-- Prefer to create situations where the learner might use the phrase.
-- Do not help the learner by demonstrating the phrase.
-- Even if a target phrase would sound natural here, do not use it.
-
-Good examples of scenario openings:
-- Du møder en ven på en café. Hvad taler I om?
-- Du er på arbejde og taler med en kollega. Hvordan starter samtalen?
-- Du står og venter på bussen. Hvad siger du til personen ved siden af?
-
-Do not label the scenario explicitly. Just start naturally in Danish.`,
-      },
-    ];
-
-    for (const msg of history as ChatMessage[]) {
-      if (
-        msg &&
-        (msg.role === "user" || msg.role === "assistant") &&
-        typeof msg.content === "string"
-      ) {
-        conversationMessages.push({
-          role: msg.role,
-          content: msg.content,
-        });
-      }
-    }
-
-    if (userMessage && typeof userMessage === "string") {
-      conversationMessages.push({
-        role: "user",
-        content: userMessage,
-      });
-    }
-
-    const replyResponse = await client.responses.create({
-      model: "gpt-4.1-mini",
-      input: conversationMessages,
-      text: {
-        format: {
-          type: "text",
-        },
-      },
+    const phrasesWithVariants = await loadPhraseVariants({
+      supabase,
+      cards: typedCards,
     });
 
-    let reply =
-      replyResponse.output_text?.trim() ||
-      "Du møder en ven på en café. Hvordan går det?";
+    const previousAssistantMessage =
+      history
+        .slice()
+        .reverse()
+        .find(
+          (msg) =>
+            msg &&
+            msg.role === "assistant" &&
+            typeof msg.content === "string"
+        )?.content ?? "";
 
-    const rewriteResponse = await client.responses.create({
-      model: "gpt-4.1-mini",
-      input: [
-        {
-          role: "system",
-          content: `You are rewriting a Danish assistant reply.
-
-Your goal:
-- keep the reply natural, short, and helpful
-- keep the same general scenario and conversational intent
-- keep it to 1-2 sentences
-- the assistant must remain clearly the OTHER speaker in the conversation
-- the assistant must NOT speak as if it is the learner
-- the assistant must NOT describe the learner's life as its own
-- the assistant must NOT continue the learner's sentence as if it belonged in the learner's mouth
-- prefer a brief reaction, a follow-up question, or a conversational response
-
-Target phrase constraints:
-- do NOT use any of the forbidden target phrases
-- do NOT use grammatical forms of those phrases, including conjugations, tense changes, plural forms, derived forms, or close repeats
-- do NOT use those phrases without leading "at" either
-
-Style constraints:
-- do NOT mention that you are avoiding anything
-- do NOT become awkward or robotic
-- keep the reply conversational and simple
-
-Forbidden target phrases:
-${phraseList.map((p) => `- ${p}`).join("\n")}
-
-Return only the rewritten Danish reply as plain text.`,
-        },
-        {
-          role: "user",
-          content: reply,
-        },
-      ],
-      text: {
-        format: {
-          type: "text",
-        },
-      },
+    const reply = await generateSafeAssistantReply({
+      openai,
+      phraseList,
+      history,
+      userMessage,
     });
 
-    const rewrittenReply = rewriteResponse.output_text?.trim();
+    const phraseFeedback = await evaluateTargetPhrases({
+      openai,
+      phrasesWithVariants,
+      userMessage,
+      previousAssistantMessage,
+    });
 
-    if (rewrittenReply) {
-      reply = rewrittenReply;
-    }
-
-    if (
-      assistantReplyUsesForbiddenPhrase(reply, phraseList) ||
-      assistantReplySoundsLikeLearner(reply)
-    ) {
-      const secondRewriteResponse = await client.responses.create({
-        model: "gpt-4.1-mini",
-        input: [
-          {
-            role: "system",
-            content: `Rewrite this Danish reply again.
-
-Rules:
-- preserve meaning and tone
-- keep it short and natural
-- the assistant must clearly be the OTHER speaker
-- do NOT speak as if you are the learner
-- do NOT describe the learner's life as your own
-- do NOT continue the learner's answer as if it were your own statement
-- prefer a reaction or follow-up question
-- do NOT use any forbidden target phrases
-- do NOT use them without leading "at"
-- paraphrase freely if needed
-- return only the Danish reply
-
-Forbidden target phrases:
-${phraseList.map((p) => `- ${p}`).join("\n")}`,
-          },
-          {
-            role: "user",
-            content: reply,
-          },
-        ],
-        text: {
-          format: {
-            type: "text",
-          },
-        },
-      });
-
-      const secondRewrittenReply = secondRewriteResponse.output_text?.trim();
-
-      if (secondRewrittenReply) {
-        reply = secondRewrittenReply;
-      }
-    }
-
-    if (assistantBreaksRole(reply)) {
-      const roleFixResponse = await client.responses.create({
-        model: "gpt-4.1-mini",
-        input: [
-          {
-            role: "system",
-            content: `You are fixing a Danish assistant reply.
-
-The reply currently sounds like the assistant is speaking about its own experience.
-This is wrong for this app.
-
-Your task:
-- rewrite the reply so that the assistant is clearly the OTHER speaker
-- react to the learner's message instead
-- do NOT introduce your own story
-- do NOT invent your own past events
-- keep it natural and conversational
-- keep it short (1-2 sentences)
-- prefer reacting + asking a question
-- do NOT use any forbidden target phrases
-- do NOT use them without leading "at"
-
-Forbidden target phrases:
-${phraseList.map((p) => `- ${p}`).join("\n")}
-
-Bad example:
-"Ja, vejret var meget bedre, end jeg havde forventet"
-
-Good style:
-"Det lyder virkelig dejligt. Hvad kunne du bedst lide ved det?"
-
-Return ONLY the Danish reply.`,
-          },
-          {
-            role: "user",
-            content: reply,
-          },
-        ],
-        text: {
-          format: {
-            type: "text",
-          },
-        },
-      });
-
-      const fixedRoleReply = roleFixResponse.output_text?.trim();
-
-      if (fixedRoleReply) {
-        reply = fixedRoleReply;
-      }
-    }
-
-    let phraseFeedback: PhraseFeedbackItem[] = phrasesWithVariants.map((item) =>
-      defaultPhraseFeedback(item.id, item.phrase)
-    );
-
-    if (userMessage && userMessage.trim()) {
-      const previousAssistantMessage =
-        (history as ChatMessage[])
-          .slice()
-          .reverse()
-          .find(
-            (msg) =>
-              msg &&
-              msg.role === "assistant" &&
-              typeof msg.content === "string"
-          )?.content ?? "";
-
-      const perPhraseResults = await Promise.all(
-        phrasesWithVariants.map(async (phraseItem) => {
-          const acceptedVariants = phraseItem.matchingVariants || [];
-
-          const singlePhraseResponse = await client.responses.create({
-            model: "gpt-4.1-mini",
-            input: [
-              {
-                role: "system",
-                content: buildSinglePhrasePrompt({
-                  phrase: phraseItem.phrase,
-                  translationEn: phraseItem.translation_en,
-                  shortExplanation: phraseItem.short_explanation,
-                  acceptedVariants,
-                }),
-              },
-              {
-                role: "user",
-                content: `Previous assistant message:
-${previousAssistantMessage || "(none)"}
-
-Learner message:
-${userMessage}`,
-              },
-            ],
-            text: {
-              format: {
-                type: "json_schema",
-                name: "single_phrase_feedback_response",
-                schema: {
-                  type: "object",
-                  properties: {
-                    phrase: { type: "string" },
-                    status: {
-                      type: "string",
-                      enum: ["correct", "almost", "wrong", "unused"],
-                    },
-                    comment: { type: "string" },
-                    suggestion: { type: "string" },
-                    detectedText: { type: "string" },
-                    sentenceIssue: {
-                      type: "string",
-                      enum: ["none", "minor", "major"],
-                    },
-                    sentenceComment: { type: "string" },
-                    correctedSentence: { type: "string" },
-                  },
-                  required: [
-                    "phrase",
-                    "status",
-                    "comment",
-                    "suggestion",
-                    "detectedText",
-                    "sentenceIssue",
-                    "sentenceComment",
-                    "correctedSentence",
-                  ],
-                  additionalProperties: false,
-                },
-              },
-            },
-          });
-
-          const rawText = singlePhraseResponse.output_text ?? "";
-
-          try {
-            const parsed = JSON.parse(rawText);
-
-            return {
-              phraseId: phraseItem.id,
-              phrase: phraseItem.phrase,
-              status: parsed.status as
-                | "correct"
-                | "almost"
-                | "wrong"
-                | "unused",
-              comment: typeof parsed.comment === "string" ? parsed.comment : "",
-              suggestion:
-                typeof parsed.suggestion === "string" ? parsed.suggestion : "",
-              detectedText:
-                typeof parsed.detectedText === "string"
-                  ? parsed.detectedText
-                  : "",
-              sentenceIssue:
-                parsed.sentenceIssue === "minor" ||
-                parsed.sentenceIssue === "major"
-                  ? parsed.sentenceIssue
-                  : "none",
-              sentenceComment:
-                typeof parsed.sentenceComment === "string"
-                  ? parsed.sentenceComment
-                  : "",
-              correctedSentence:
-                typeof parsed.correctedSentence === "string"
-                  ? parsed.correctedSentence
-                  : "",
-            } satisfies PhraseFeedbackItem;
-          } catch (err) {
-            console.error(
-              "Failed to parse single phrase feedback JSON:",
-              phraseItem.phrase,
-              rawText,
-              err
-            );
-
-            return defaultPhraseFeedback(phraseItem.id, phraseItem.phrase);
-          }
-        })
-      );
-
-      phraseFeedback = perPhraseResults;
-
+    if (userMessage.trim()) {
       const isFirstTurn =
         !previousAssistantMessage || !previousAssistantMessage.trim();
 
       try {
         await evaluateAndApplySpontaneousUsage({
-          openai: client,
+          openai,
           supabase,
           userMessage,
           previousAssistantMessage,
@@ -872,11 +879,17 @@ ${userMessage}`,
       }
     }
 
+    const payload = {
+      reply,
+      phraseFeedback,
+    };
+
     return Response.json({
-      result: JSON.stringify({
-        reply,
-        phraseFeedback,
-      }),
+      ...payload,
+
+      // Kept temporarily for compatibility with your current frontend.
+      // Later we can remove this and use reply/phraseFeedback directly.
+      result: JSON.stringify(payload),
     });
   } catch (error: any) {
     console.error("PRACTICE CHAT ERROR:", error);

@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 
+const MODEL = "gpt-4.1-mini";
+
 export async function POST(req: Request) {
   try {
     const client = new OpenAI({
@@ -7,6 +9,7 @@ export async function POST(req: Request) {
     });
 
     const body = await req.json();
+
     const phrase = typeof body.phrase === "string" ? body.phrase.trim() : "";
     const translationEn =
       typeof body.translation_en === "string"
@@ -30,18 +33,19 @@ All fields must match this intended meaning:
 - example_en
 - extra_info
 
-If the Danish phrase is ambiguous, keep the Danish surface form if possible, but make sure the explanation and example clearly match the intended meaning.`
-      : `If the phrase has multiple meanings, choose the most common useful learner meaning.`;
+If the Danish phrase is ambiguous, keep the Danish surface form if possible, but make the explanation and example clearly match the intended meaning.`
+      : `If the phrase has multiple meanings, choose the most common useful learner meaning.
+Prefer the meaning that would be most useful in everyday Danish.`;
 
     const response = await client.responses.create({
-      model: "gpt-4.1-mini",
+      model: MODEL,
       input: [
         {
           role: "system",
-          content: `You help a Danish learner save useful Danish phrases.
+          content: `You help a Danish learner save useful Danish words and phrases.
 
 Your job:
-1. Correct Danish spelling mistakes and missing Danish letters (æ, ø, å) if needed.
+1. Correct only clear Danish spelling mistakes and missing Danish letters (æ, ø, å).
 2. Return the corrected natural Danish phrase.
 3. Give the translation in English.
 4. Give a short explanation in Danish.
@@ -49,18 +53,45 @@ Your job:
 6. Give the English translation of that example.
 7. Give short useful grammar info in Danish.
 
-Important:
+Important principles:
 - If the input already looks good, keep it unchanged.
+- Do not rewrite the phrase into a different phrase just because it sounds slightly more common.
+- Do not replace the phrase with a synonym.
+- Do not make the phrase longer unless this is necessary for natural Danish.
 - Keep explanations short, practical, and learner-friendly.
 - The explanation must be in Danish.
-- The explanation should not repeat the word itself. For example: for "anvendelse" it is enough to output "brug eller måde at bruge noget på".
+- The explanation should not simply repeat the word itself.
 - The translation must be in English.
-- Return ONLY valid JSON.
+- The Danish example should be natural, short, and useful for a learner.
+- The Danish example should show the target phrase clearly.
+- Do not use overly literary, formal, or rare examples unless the phrase itself requires it.
 - Do not comment on spelling unless the correction changes the meaning of the phrase.
+- Return ONLY valid JSON.
 
 ${meaningInstruction}
 
-Rules for "extra_info":
+Rules for corrected_phrase:
+- Preserve the learner's phrase as much as possible.
+- Correct obvious typos.
+- Restore missing æ, ø, å where clearly needed.
+- Keep leading "at" for infinitive verb phrases if the learner included it.
+- Do not add leading "at" unless the phrase is clearly meant as an infinitive verb phrase.
+- For fixed expressions, keep the fixed expression.
+
+Rules for short_explanation_da:
+- Write in simple Danish.
+- Prefer one short sentence or sentence fragment.
+- Do not start every explanation with "Det betyder...".
+- Do not repeat the target phrase unless necessary.
+
+Rules for example_da:
+- Include the corrected phrase or a natural inflected form of it.
+- Make the example sound like everyday Danish.
+- Keep it short.
+- Avoid complicated subordinate clauses unless needed.
+- Avoid examples about learning Danish unless the phrase naturally calls for it.
+
+Rules for extra_info:
 - If the phrase is primarily a verb or verbal expression, give short conjugation info in Danish.
   Example format:
   "nutid: går · datid: gik · perfektum: er gået"
@@ -68,6 +99,8 @@ Rules for "extra_info":
   "en-ord" or "et-ord"
 - If the phrase is another useful word type, give a short grammar label such as:
   "adverbium", "adjektiv", "fast udtryk", "pronomen"
+- For adjectives, include a short useful form if relevant:
+  "adjektiv · intetkøn: ... · flertal: ..."
 - Keep extra_info short.
 - If no useful extra info is available, return an empty string.
 - For reflexive verbs or fixed verbal expressions, keep the info practical and natural for a learner.`,
@@ -89,7 +122,7 @@ Return JSON with exactly this structure:
   "example_en": "...",
   "extra_info": "..."
 }`
-            : `Analyze this phrase: "${phrase}"
+            : `Analyze this Danish phrase: "${phrase}"
 
 Return JSON with exactly this structure:
 {
@@ -132,7 +165,24 @@ Return JSON with exactly this structure:
 
     const text = response.output_text ?? "";
 
-    return Response.json({ result: text });
+    let parsed = null;
+
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = null;
+    }
+
+    if (!parsed) {
+      return Response.json({ result: text });
+    }
+
+    return Response.json({
+      ...parsed,
+
+      // Kept for compatibility with the current frontend.
+      result: JSON.stringify(parsed),
+    });
   } catch (error: any) {
     console.error("ANALYZE PHRASE ERROR:", error);
 

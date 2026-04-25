@@ -134,6 +134,34 @@ const getTokenOverlapRatio = (
   return bestRatio;
 };
 
+const hasLocalTextEvidence = (row: CandidatePhrase, userMessage: string) => {
+  const textsToMatch = [row.phrase, ...row.matchingVariants];
+
+  return textsToMatch.some((text) => {
+    const stripped = stripLeadingAt(text);
+
+    if (containsNormalizedSubstring(userMessage, text)) return true;
+    if (containsNormalizedSubstring(userMessage, stripped)) return true;
+
+    const phraseTokens = tokenize(stripped);
+    const messageTokens = new Set(tokenize(userMessage));
+
+    if (phraseTokens.length === 0) return false;
+
+    const overlapCount = phraseTokens.filter((token) =>
+      messageTokens.has(token)
+    ).length;
+
+    const overlapRatio = overlapCount / phraseTokens.length;
+
+    if (phraseTokens.length === 1) {
+      return overlapRatio === 1;
+    }
+
+    return overlapRatio >= MIN_OVERLAP_RATIO;
+  });
+};
+
 const isClearlyCopiedFromAssistant = (
   detectedText: string,
   previousAssistantMessage: string
@@ -337,10 +365,7 @@ export async function evaluateAndApplySpontaneousUsage({
   );
 
   if (error) {
-    console.error(
-      "Failed to load phrases for spontaneous evaluation:",
-      error
-    );
+    console.error("Failed to load phrases for spontaneous evaluation:", error);
     return [];
   }
 
@@ -387,12 +412,21 @@ export async function evaluateAndApplySpontaneousUsage({
 
   const filteredRows = getFilteredNonTargetRows(allRows, currentTargetPhrases);
 
-  const candidatePool = isFirstTurn
+  const initialCandidatePool = isFirstTurn
     ? getFirstTurnPool(filteredRows)
     : getLaterTurnPool(filteredRows, trimmedMessage);
 
-  if (candidatePool.length === 0) {
+  if (initialCandidatePool.length === 0) {
     console.log("[spontaneous] candidate pool is empty");
+    return [];
+  }
+
+  const candidatePool = initialCandidatePool.filter((row) =>
+    hasLocalTextEvidence(row, trimmedMessage)
+  );
+
+  if (candidatePool.length === 0) {
+    console.log("[spontaneous] no candidates with local text evidence");
     return [];
   }
 
@@ -436,7 +470,8 @@ export async function evaluateAndApplySpontaneousUsage({
   console.log("[spontaneous] user message:", trimmedMessage);
   console.log("[spontaneous] total phrases:", allRows.length);
   console.log("[spontaneous] filtered pool size:", filteredRows.length);
-  console.log("[spontaneous] candidate pool size:", candidatePool.length);
+  console.log("[spontaneous] initial candidate pool size:", initialCandidatePool.length);
+  console.log("[spontaneous] evidence-filtered candidate pool size:", candidatePool.length);
   console.log(
     "[spontaneous] candidate phrases:",
     candidatePool.map((row) => ({
@@ -463,6 +498,9 @@ ${candidatePhraseBlock}
 
 Rules:
 - detect real usage only, not merely related ideas
+- do not infer usage from meaning alone
+- there must be visible textual evidence in the learner message: exact phrase, accepted stored variant, natural inflection, or a very close grammatical form
+- if the learner only expresses a related idea with different words, do not include the phrase
 - accept natural inflections
 - accepted stored variants count as valid usage of their base phrase
 - natural inflected forms of accepted stored variants also count
@@ -551,9 +589,7 @@ ${trimmedMessage}`,
     },
   });
 
-  const parsed = parseSpontaneousResponse(
-    evaluationResponse.output_text ?? ""
-  );
+  const parsed = parseSpontaneousResponse(evaluationResponse.output_text ?? "");
   if (!parsed) return [];
 
   console.log("[spontaneous] raw model matches:", parsed.spontaneousMatches);
@@ -597,10 +633,7 @@ ${trimmedMessage}`,
     }
 
     if (!match.isSpontaneous) {
-      console.log(
-        "[spontaneous] skipped non-spontaneous match:",
-        match.phrase
-      );
+      console.log("[spontaneous] skipped non-spontaneous match:", match.phrase);
       return false;
     }
 
@@ -626,8 +659,15 @@ ${trimmedMessage}`,
       return false;
     }
 
-    const candidateTexts = [candidateRow.phrase, ...candidateRow.matchingVariants];
-    const overlapRatio = getTokenOverlapRatio(match.detectedText, candidateTexts);
+    const candidateTexts = [
+      candidateRow.phrase,
+      ...candidateRow.matchingVariants,
+    ];
+
+    const overlapRatio = getTokenOverlapRatio(
+      match.detectedText,
+      candidateTexts
+    );
 
     if (overlapRatio < MIN_OVERLAP_RATIO) {
       console.log(
@@ -639,15 +679,23 @@ ${trimmedMessage}`,
       return false;
     }
 
-    if (isClearlyCopiedFromAssistant(match.detectedText, previousAssistantMessage)) {
+    if (
+      isClearlyCopiedFromAssistant(
+        match.detectedText,
+        previousAssistantMessage
+      )
+    ) {
       console.log(
-        "[spontaneous] detectedText also appears in previous assistant message:",
+        "[spontaneous] skipped copied from previous assistant message:",
         match.phrase,
         match.detectedText
       );
+      return false;
     }
 
-    const candidateTokenCount = tokenize(stripLeadingAt(candidateRow.phrase)).length;
+    const candidateTokenCount = tokenize(stripLeadingAt(candidateRow.phrase))
+      .length;
+
     const requiredConfidence =
       candidateTokenCount <= 1
         ? AMBIGUOUS_SINGLE_WORD_MIN_CONFIDENCE
@@ -693,6 +741,7 @@ ${trimmedMessage}`,
       (match.status === "wrong" ? 1 : 0);
 
     const currentAttempts = row.times_attempted ?? 0;
+
     const qualifiesForMasteryBoost =
       currentAttempts >= SPONTANEOUS_MASTERY_BONUS_MIN_ATTEMPTS &&
       currentAttempts <= SPONTANEOUS_MASTERY_BONUS_MAX_ATTEMPTS;
@@ -747,10 +796,7 @@ ${trimmedMessage}`,
       .eq("id", row.id);
 
     if (updateError) {
-      console.error(
-        "Failed to update spontaneous phrase stats:",
-        updateError
-      );
+      console.error("Failed to update spontaneous phrase stats:", updateError);
       continue;
     }
 
