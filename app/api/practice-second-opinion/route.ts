@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import { buildFeedbackSummary } from "../../practice/buildFeedbackSummary";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -15,6 +16,7 @@ type PhraseFeedback = {
   detectedText: string;
   sentenceIssue: "none" | "minor" | "major";
   sentenceComment: string;
+  correctedSentence: string;
 };
 
 type IncomingPhraseCard = {
@@ -112,7 +114,13 @@ export async function POST(req: Request) {
       .map((item: any) => ({
         phraseId: item.phraseId,
         phrase: item.phrase,
-        status: item.status,
+        status:
+          item.status === "correct" ||
+          item.status === "almost" ||
+          item.status === "wrong" ||
+          item.status === "unused"
+            ? item.status
+            : "unused",
         comment: typeof item.comment === "string" ? item.comment : "",
         suggestion: typeof item.suggestion === "string" ? item.suggestion : "",
         detectedText:
@@ -124,6 +132,10 @@ export async function POST(req: Request) {
         sentenceComment:
           typeof item.sentenceComment === "string"
             ? item.sentenceComment
+            : "",
+        correctedSentence:
+          typeof item.correctedSentence === "string"
+            ? item.correctedSentence
             : "",
       }));
 
@@ -182,7 +194,9 @@ export async function POST(req: Request) {
         return `- phraseId: ${item.id}
   Base phrase: ${item.phrase}
   Target meaning in English: ${item.translation_en || "(not provided)"}
-  Target explanation in Danish: ${item.short_explanation || "(not provided)"}${variantsText}`;
+  Target explanation in Danish: ${
+    item.short_explanation || "(not provided)"
+  }${variantsText}`;
       })
       .join("\n");
 
@@ -276,6 +290,7 @@ REVIEW PRINCIPLES
 13. Punctuation mistakes should normally be ignored.
 14. Do not downgrade a phrase from correct to almost or wrong just because of punctuation, capitalization, or informal chat-style writing.
 15. Minor punctuation problems may be mentioned in feedback if useful, but they must not determine the phrase verdict.
+
 --------------------------------
 IMPORTANT DANISH RULES
 --------------------------------
@@ -322,7 +337,7 @@ OUTPUT RULES
 
 Return revised feedback in the same format as the current feedback.
 You may keep items unchanged if they are already good.
-You may revise status, comment, suggestion, detectedText, sentenceIssue, sentenceComment.
+You may revise status, comment, suggestion, detectedText, sentenceIssue, sentenceComment, correctedSentence.
 
 Be concise and practical.
 If a phrase is correct, suggestion should usually be empty.
@@ -352,7 +367,8 @@ Return ONLY valid JSON with exactly this structure:
       "suggestion": "short corrected version or empty string",
       "detectedText": "exact matching text from learner message or empty string",
       "sentenceIssue": "none | minor | major",
-      "sentenceComment": "short explanation of grammar issue outside the target phrase, or empty string"
+      "sentenceComment": "short explanation of grammar issue outside the target phrase, or empty string",
+      "correctedSentence": "full corrected learner sentence or empty string"
     }
   ]
 }`,
@@ -395,6 +411,7 @@ ${JSON.stringify(typedFeedback, null, 2)}`,
                       enum: ["none", "minor", "major"],
                     },
                     sentenceComment: { type: "string" },
+                    correctedSentence: { type: "string" },
                   },
                   required: [
                     "phraseId",
@@ -405,6 +422,7 @@ ${JSON.stringify(typedFeedback, null, 2)}`,
                     "detectedText",
                     "sentenceIssue",
                     "sentenceComment",
+                    "correctedSentence",
                   ],
                   additionalProperties: false,
                 },
@@ -440,7 +458,13 @@ ${JSON.stringify(typedFeedback, null, 2)}`,
       );
     }
 
-    return Response.json({ phraseFeedback });
+    const feedbackSummary = await buildFeedbackSummary({
+      openai: client,
+      userMessage,
+      phraseFeedback,
+    });
+
+    return Response.json({ phraseFeedback, feedbackSummary });
   } catch (error: any) {
     console.error("PRACTICE SECOND OPINION ERROR:", error);
 

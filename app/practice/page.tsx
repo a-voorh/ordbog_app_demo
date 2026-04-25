@@ -58,9 +58,29 @@ type PhraseFeedback = {
   correctedSentence: string;
 };
 
+type FeedbackTargetIssue = {
+  phraseId: string;
+  phrase: string;
+  status: "correct" | "almost" | "wrong";
+  issue: string;
+  suggestion: string;
+};
+
+type FeedbackSentenceIssue = {
+  issue: string;
+  suggestion: string;
+};
+
+type FeedbackSummary = {
+  targetIssues: FeedbackTargetIssue[];
+  sentenceIssues: FeedbackSentenceIssue[];
+  correctedUserMessage: string;
+};
+
 type PracticeResponse = {
   reply: string;
   phraseFeedback: PhraseFeedback[];
+  feedbackSummary?: FeedbackSummary;
 };
 
 type AnalyzeResult = {
@@ -152,6 +172,8 @@ export default function PracticePage() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [lastPhraseFeedback, setLastPhraseFeedback] = useState<PhraseFeedback[]>([]);
+  const [lastFeedbackSummary, setLastFeedbackSummary] =
+  useState<FeedbackSummary | null>(null);
   const [usedPhraseIds, setUsedPhraseIds] = useState<string[]>([]);
 
   const [addFromMessageIndex, setAddFromMessageIndex] = useState<number | null>(null);
@@ -853,6 +875,7 @@ export default function PracticePage() {
     setHelpOpen(false);
     setHelpPhraseId(null);
     setHelpUsedByPhraseId({});
+    setLastFeedbackSummary(null);
 
     if (draftSavedTimeoutRef.current !== null) {
       window.clearTimeout(draftSavedTimeoutRef.current);
@@ -1092,6 +1115,7 @@ export default function PracticePage() {
     setInput("");
     setLoading(true);
     setLastPhraseFeedback([]);
+    setLastFeedbackSummary(null);
     setAddFromMessageIndex(null);
     setCandidatePhrase("");
     setAddPhraseStatus(null);
@@ -1132,6 +1156,7 @@ export default function PracticePage() {
         : rawFeedback;
 
       setLastPhraseFeedback(feedbackForDisplay);
+      setLastFeedbackSummary(parsed.feedbackSummary || null);
 
       const correctlyUsedIds = feedbackForDisplay
         .filter((item) => item.status === "correct")
@@ -1139,9 +1164,14 @@ export default function PracticePage() {
 
       setUsedPhraseIds((prev) => Array.from(new Set([...prev, ...correctlyUsedIds])));
 
-      if (feedbackForDisplay.some((item) => item.status !== "unused")) {
-        setFeedbackOpen(true);
-      }
+      if (
+  feedbackForDisplay.some((item) => item.status !== "unused") ||
+  parsed.feedbackSummary?.targetIssues?.length ||
+  parsed.feedbackSummary?.sentenceIssues?.length ||
+  parsed.feedbackSummary?.correctedUserMessage
+) {
+  setFeedbackOpen(true);
+}
 
       const nowIso = new Date().toISOString();
 
@@ -1251,6 +1281,7 @@ export default function PracticePage() {
     setMessages(baseMessages);
     setInput(originalUserMessage);
     setLastPhraseFeedback([]);
+    setLastFeedbackSummary(null);
     setAddFromMessageIndex(null);
     setCandidatePhrase("");
     setAddPhraseStatus(null);
@@ -1367,6 +1398,7 @@ export default function PracticePage() {
 
     const historyWithoutLastAssistant = messages.slice(0, -1);
 
+    setLastFeedbackSummary(null);
     setLoading(true);
     setAddFromMessageIndex(null);
     setCandidatePhrase("");
@@ -1719,7 +1751,11 @@ export default function PracticePage() {
   const canRegenerate =
     messages.length > 0 && messages[messages.length - 1]?.role === "assistant";
 
-  const hasVisibleFeedback = lastPhraseFeedback.some((item) => item.status !== "unused");
+  const hasVisibleFeedback =
+  lastPhraseFeedback.some((item) => item.status !== "unused") ||
+  !!lastFeedbackSummary?.targetIssues?.length ||
+  !!lastFeedbackSummary?.sentenceIssues?.length ||
+  !!lastFeedbackSummary?.correctedUserMessage;
 
   const practiceSourceLabel =
     practiceSource === "all"
@@ -2237,13 +2273,11 @@ export default function PracticePage() {
                       }}
                       onClick={() => {
                         const phrase = card.phrase;
-
                         const textarea = inputRef.current;
                         if (!textarea) return;
 
                         const start = textarea.selectionStart;
                         const end = textarea.selectionEnd;
-
                         const before = input.slice(0, start);
                         const after = input.slice(end);
 
@@ -2387,102 +2421,122 @@ export default function PracticePage() {
             {messages.length === 0 ? (
               <p>No conversation yet.</p>
             ) : (
-              messages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`chat-message ${
-                    msg.role === "assistant" ? "chat-message-assistant" : "chat-message-user"
-                  }`}
-                >
-                  <strong>{msg.role === "assistant" ? "Assistant" : "You"}:</strong>{" "}
-                  {msg.role === "user" && i === latestUserMessageIndex
-                    ? highlightDetectedText(msg.content, lastPhraseFeedback)
-                    : msg.content}
+              messages.map((msg, i) => {
+                const latestAssistantIndex =
+                  [...messages]
+                    .map((m, idx) => ({ ...m, idx }))
+                    .filter((m) => m.role === "assistant")
+                    .slice(-1)[0]?.idx ?? -1;
 
-                  {msg.role === "assistant" && (
-                    <div style={{ marginTop: 10 }}>
-                      <div
-                        className="utility-actions"
-                        style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
-                      >
-                        <button
-                          className="button-secondary button-small"
-                          onClick={() => openAddPhraseFromMessage(i)}
+                return (
+                  <div
+                    key={i}
+                    className={`chat-message ${
+                      msg.role === "assistant" ? "chat-message-assistant" : "chat-message-user"
+                    }`}
+                  >
+                    <strong>{msg.role === "assistant" ? "Assistant" : "You"}:</strong>{" "}
+                    {msg.role === "user" && i === latestUserMessageIndex
+                      ? highlightDetectedText(msg.content, lastPhraseFeedback)
+                      : msg.content}
+
+                    {msg.role === "assistant" && (
+                      <div style={{ marginTop: 10 }}>
+                        <div
+                          className="utility-actions"
+                          style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
                         >
-                          Create card draft
-                        </button>
+                          <button
+                            className="button-secondary button-small"
+                            onClick={() => openAddPhraseFromMessage(i)}
+                          >
+                            Create card draft
+                          </button>
 
-                        <button
-                          className="button-secondary button-small"
-                          onClick={() => void translateAssistantMessage(i, msg.content)}
-                          disabled={translatingMessageIndex === i}
-                        >
-                          {translatingMessageIndex === i
-                            ? "Translating..."
-                            : showTranslationByMessage[i]
-                              ? "Hide translation"
-                              : "Translate message"}
-                        </button>
-                      </div>
+                          <button
+                            className="button-secondary button-small"
+                            onClick={() => void translateAssistantMessage(i, msg.content)}
+                            disabled={translatingMessageIndex === i}
+                          >
+                            {translatingMessageIndex === i
+                              ? "Translating..."
+                              : showTranslationByMessage[i]
+                                ? "Hide translation"
+                                : "Translate message"}
+                          </button>
 
-                      {showTranslationByMessage[i] && messageTranslations[i] && (
-                        <div className="mini-box" style={{ marginTop: 10 }}>
-                          <div className="meta-text" style={{ marginBottom: 6 }}>
-                            English translation
-                          </div>
-                          <div>{messageTranslations[i]}</div>
-                        </div>
-                      )}
-
-                      {addFromMessageIndex === i && (
-                        <div className="mini-box">
-                          <div className="meta-text" style={{ marginBottom: 8 }}>
-                            Select text in the message above, or type the phrase here.
-                          </div>
-
-                          <div className="controls-row">
-                            <input
-                              value={candidatePhrase}
-                              onChange={(e) => setCandidatePhrase(e.target.value)}
-                              onKeyDown={handleAddPhraseKeyDown}
-                              placeholder="Phrase to save as draft..."
-                              className="text-input"
-                              style={{ width: "100%", maxWidth: 300 }}
-                            />
-
+                          {i === latestAssistantIndex && (
                             <button
-                              onClick={() => void savePhraseFromMessage()}
-                              disabled={addingPhrase}
-                              className={`button-primary ${
-                                addingPhrase ? "button-disabled" : ""
+                              onClick={() => void regenerateAnswer()}
+                              disabled={loading}
+                              className={`button-secondary button-small ${
+                                loading ? "button-disabled" : ""
                               }`}
                             >
-                              {addingPhrase ? "Creating..." : "Create draft"}
+                              Regenerate answer
                             </button>
-
-                            <button
-                              onClick={() => {
-                                setAddFromMessageIndex(null);
-                                setCandidatePhrase("");
-                                setAddPhraseStatus(null);
-                              }}
-                              className="button-secondary"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-
-                          {addPhraseStatus && (
-                            <div className="meta-text" style={{ marginTop: 8 }}>
-                              {addPhraseStatus}
-                            </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))
+
+                        {showTranslationByMessage[i] && messageTranslations[i] && (
+                          <div className="mini-box" style={{ marginTop: 10 }}>
+                            <div className="meta-text" style={{ marginBottom: 6 }}>
+                              English translation
+                            </div>
+                            <div>{messageTranslations[i]}</div>
+                          </div>
+                        )}
+
+                        {addFromMessageIndex === i && (
+                          <div className="mini-box">
+                            <div className="meta-text" style={{ marginBottom: 8 }}>
+                              Select text in the message above, or type the phrase here.
+                            </div>
+
+                            <div className="controls-row">
+                              <input
+                                value={candidatePhrase}
+                                onChange={(e) => setCandidatePhrase(e.target.value)}
+                                onKeyDown={handleAddPhraseKeyDown}
+                                placeholder="Phrase to save as draft..."
+                                className="text-input"
+                                style={{ width: "100%", maxWidth: 300 }}
+                              />
+
+                              <button
+                                onClick={() => void savePhraseFromMessage()}
+                                disabled={addingPhrase}
+                                className={`button-primary ${
+                                  addingPhrase ? "button-disabled" : ""
+                                }`}
+                              >
+                                {addingPhrase ? "Creating..." : "Create draft"}
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  setAddFromMessageIndex(null);
+                                  setCandidatePhrase("");
+                                  setAddPhraseStatus(null);
+                                }}
+                                className="button-secondary"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+
+                            {addPhraseStatus && (
+                              <div className="meta-text" style={{ marginTop: 8 }}>
+                                {addPhraseStatus}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
             <div ref={chatBottomRef} />
           </div>
@@ -2532,16 +2586,6 @@ export default function PracticePage() {
                         className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
                       >
                         End
-                      </button>
-                    )}
-
-                    {canRegenerate && (
-                      <button
-                        onClick={() => void regenerateAnswer()}
-                        disabled={loading}
-                        className={`button-secondary button-small ${loading ? "button-disabled" : ""}`}
-                      >
-                        Retry
                       </button>
                     )}
 
@@ -2657,111 +2701,158 @@ export default function PracticePage() {
         )}
 
         {feedbackOpen && (
-          <ul style={{ marginTop: 10 }}>
-            {lastPhraseFeedback
-              .filter((item) => item.status !== "unused")
-              .map((item) => (
-                <li key={item.phraseId} style={{ marginBottom: 12 }}>
-                  {item.status === "correct" && "✓"}
-                  {item.status === "almost" && "~"}
-                  {item.status === "wrong" && "✗"}{" "}
-                  <strong>{item.phrase}</strong>
-                  {item.comment ? ` — ${item.comment}` : ""}
+          <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
+            {lastFeedbackSummary?.targetIssues?.length ? (
+              <div className="mini-box" style={{ margin: 0 }}>
+                <strong>Target phrase feedback</strong>
 
-                  {item.suggestion && (
-                    <div style={{ marginTop: 4 }}>
-                      <em>Suggestion:</em> {item.suggestion}
-                    </div>
-                  )}
+                <ul style={{ marginTop: 10, marginBottom: 0 }}>
+                  {lastFeedbackSummary.targetIssues.map((item) => (
+                    <li key={item.phraseId} style={{ marginBottom: 10 }}>
+                      {item.status === "correct" && "✓"}
+                      {item.status === "almost" && "~"}
+                      {item.status === "wrong" && "✗"}{" "}
+                      <strong>{item.phrase}</strong>
+                      {item.issue ? ` — ${item.issue}` : ""}
 
-                  {item.sentenceIssue !== "none" && item.sentenceComment && (
-                    <div style={{ marginTop: 4 }}>
-                      <em>Grammar elsewhere:</em> {item.sentenceComment}
-                    </div>
-                  )}
-
-                  {item.correctedSentence && (
-                    <div style={{ marginTop: 4 }}>
-                      <div>
-                        <em>Corrected sentence:</em> {item.correctedSentence}
-                      </div>
-
-                      <div style={{ marginTop: 6 }}>
-                        <button
-                          className="button-secondary button-small"
-                          onClick={() => {
-                            const selectedText =
-                              window.getSelection?.()?.toString().trim() || "";
-                            setAddFromFeedbackPhraseId(item.phraseId);
-                            setCandidateFeedbackPhrase(
-                              selectedText || item.correctedSentence
-                            );
-                            setAddPhraseStatus(null);
-                          }}
-                        >
-                          Create draft from correction
-                        </button>
-                      </div>
-
-                      {addFromFeedbackPhraseId === item.phraseId && (
-                        <div className="mini-box" style={{ marginTop: 8 }}>
-                          <div className="meta-text" style={{ marginBottom: 8 }}>
-                            Select text from the corrected sentence above, or edit it here.
-                          </div>
-
-                          <div className="controls-row">
-                            <input
-                              value={candidateFeedbackPhrase}
-                              onChange={(e) =>
-                                setCandidateFeedbackPhrase(e.target.value)
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  if (!addingPhrase) {
-                                    void savePhraseFromFeedback();
-                                  }
-                                }
-                              }}
-                              placeholder="Phrase to save as draft..."
-                              className="text-input"
-                              style={{ width: "100%", maxWidth: 300 }}
-                            />
-
-                            <button
-                              onClick={() => void savePhraseFromFeedback()}
-                              disabled={addingPhrase}
-                              className={`button-primary ${
-                                addingPhrase ? "button-disabled" : ""
-                              }`}
-                            >
-                              {addingPhrase ? "Creating..." : "Create draft"}
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                setAddFromFeedbackPhraseId(null);
-                                setCandidateFeedbackPhrase("");
-                                setAddPhraseStatus(null);
-                              }}
-                              className="button-secondary"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-
-                          {addPhraseStatus && (
-                            <div className="meta-text" style={{ marginTop: 8 }}>
-                              {addPhraseStatus}
-                            </div>
-                          )}
+                      {item.suggestion && (
+                        <div style={{ marginTop: 4 }}>
+                          <em>Suggestion:</em> {item.suggestion}
                         </div>
                       )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {lastFeedbackSummary?.sentenceIssues?.length ? (
+              <div className="mini-box" style={{ margin: 0 }}>
+                <strong>Other improvements</strong>
+
+                <ul style={{ marginTop: 10, marginBottom: 0 }}>
+                  {lastFeedbackSummary.sentenceIssues.map((item, index) => (
+                    <li key={index} style={{ marginBottom: 10 }}>
+                      {item.issue}
+
+                      {item.suggestion && (
+                        <div style={{ marginTop: 4 }}>
+                          <em>Suggestion:</em> {item.suggestion}
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {lastFeedbackSummary?.correctedUserMessage ? (
+              <div className="mini-box" style={{ margin: 0 }}>
+                <strong>Suggested corrected version</strong>
+
+                <div
+                  style={{
+                    marginTop: 10,
+                    padding: 12,
+                    borderRadius: 12,
+                    background: "#f9fafb",
+                    border: "1px solid #e5e7eb",
+                  }}
+                >
+                  {lastFeedbackSummary.correctedUserMessage}
+                </div>
+
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    className="button-secondary button-small"
+                    onClick={() => {
+                      const selectedText =
+                        window.getSelection?.()?.toString().trim() || "";
+
+                      setAddFromFeedbackPhraseId("corrected-message");
+                      setCandidateFeedbackPhrase(
+                        selectedText || lastFeedbackSummary.correctedUserMessage
+                      );
+                      setAddPhraseStatus(null);
+                    }}
+                  >
+                    Create draft from correction
+                  </button>
+                </div>
+
+                {addFromFeedbackPhraseId === "corrected-message" && (
+                  <div className="mini-box" style={{ marginTop: 8 }}>
+                    <div className="meta-text" style={{ marginBottom: 8 }}>
+                      Select text from the corrected version above, or edit it here.
                     </div>
-                  )}
-                </li>
-              ))}
-          </ul>
+
+                    <div className="controls-row">
+                      <input
+                        value={candidateFeedbackPhrase}
+                        onChange={(e) =>
+                          setCandidateFeedbackPhrase(e.target.value)
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            if (!addingPhrase) {
+                              void savePhraseFromFeedback();
+                            }
+                          }
+                        }}
+                        placeholder="Phrase to save as draft..."
+                        className="text-input"
+                        style={{ width: "100%", maxWidth: 300 }}
+                      />
+
+                      <button
+                        onClick={() => void savePhraseFromFeedback()}
+                        disabled={addingPhrase}
+                        className={`button-primary ${
+                          addingPhrase ? "button-disabled" : ""
+                        }`}
+                      >
+                        {addingPhrase ? "Creating..." : "Create draft"}
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setAddFromFeedbackPhraseId(null);
+                          setCandidateFeedbackPhrase("");
+                          setAddPhraseStatus(null);
+                        }}
+                        className="button-secondary"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+
+                    {addPhraseStatus && (
+                      <div className="meta-text" style={{ marginTop: 8 }}>
+                        {addPhraseStatus}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {!lastFeedbackSummary &&
+              lastPhraseFeedback
+                .filter((item) => item.status !== "unused")
+                .map((item) => (
+                  <div key={item.phraseId} className="mini-box" style={{ margin: 0 }}>
+                    <strong>{item.phrase}</strong>
+                    {item.comment ? ` — ${item.comment}` : ""}
+
+                    {item.suggestion && (
+                      <div style={{ marginTop: 4 }}>
+                        <em>Suggestion:</em> {item.suggestion}
+                      </div>
+                    )}
+                  </div>
+                ))}
+          </div>
         )}
       </div>
     )}

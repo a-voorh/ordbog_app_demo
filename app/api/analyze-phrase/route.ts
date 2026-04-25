@@ -81,8 +81,9 @@ Rules for corrected_phrase:
 Rules for short_explanation_da:
 - Write in simple Danish.
 - Prefer one short sentence or sentence fragment.
-- Do not start every explanation with "Det betyder...".
-- Do not repeat the target phrase unless necessary.
+- Do not start the explanation with "Det betyder...".
+- NEVER repeat the target phrase. 
+- Avoid using the words with the same root as the target phrase. For example, do not use the word "sandsynlighed" to explain the meaning of the word "sandsynlig".
 
 Rules for example_da:
 - Include the corrected phrase or a natural inflected form of it.
