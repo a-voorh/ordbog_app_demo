@@ -423,36 +423,42 @@ const [refreshMeaningPicker, setRefreshMeaningPicker] =
   const daysSinceLastPracticed = (card: PhraseCard) =>
     daysSinceIso(card.last_practiced_at);
 
-  const masteryPoints = (card: PhraseCard) => {
-    const promptedCorrect = correctOf(card) * 1.3;
-    const promptedAlmost = almostOf(card) * 0.8;
-    const promptedWrong = wrongOf(card) * -0.6;
-    const spontaneousCorrect = spontaneousCorrectOf(card) * 2.3;
-    const spontaneousAlmost = spontaneousAlmostOf(card) * 1.4;
-    const spontaneousWrong = spontaneousWrongOf(card) * -0.2;
-    const retryCorrect = retryCorrectOf(card) * 0.5;
+ const masteryPoints = (card: PhraseCard) => {
+  const promptedCorrect = correctOf(card) * 2;
+  const promptedAlmost = almostOf(card) * 1.2;
+  const promptedWrong = wrongOf(card) * -0.8;
 
-    const total =
-      promptedCorrect +
-      promptedAlmost +
-      promptedWrong +
-      spontaneousCorrect +
-      spontaneousAlmost +
-      spontaneousWrong +
-      retryCorrect;
+  const spontaneousCorrect = spontaneousCorrectOf(card) * 3;
+  const spontaneousAlmost = spontaneousAlmostOf(card) * 1.7;
+  const spontaneousWrong = spontaneousWrongOf(card) * -0.5;
 
-    return Math.max(0, total);
-  };
+  const retryCorrect = retryCorrectOf(card) * 0.7;
 
-  const masteryLabel = (card: PhraseCard) => {
-    const points = masteryPoints(card);
+  const total =
+    promptedCorrect +
+    promptedAlmost +
+    promptedWrong +
+    spontaneousCorrect +
+    spontaneousAlmost +
+    spontaneousWrong +
+    retryCorrect;
 
-    if (points < 2) return "new";
-    if (points < 5) return "familiar";
-    if (points < 9) return "active";
-    if (spontaneousCorrectOf(card) >= 1) return "automatic";
-    return "active";
-  };
+  return Math.max(0, total);
+};
+
+const masteryLabel = (card: PhraseCard) => {
+  const points = masteryPoints(card);
+  const spontaneousCorrect = spontaneousCorrectOf(card);
+
+  // IMPORTANT: check automatic first
+  if (spontaneousCorrect >= 2 && points >= 6) return "automatic";
+  if (spontaneousCorrect >= 1 && points >= 4) return "active";
+
+  if (points < 2) return "new";
+  if (points < 4) return "familiar";
+
+  return "active";
+};
 
   const masteryColor = (card: PhraseCard) => {
     const label = masteryLabel(card);
