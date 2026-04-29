@@ -31,6 +31,11 @@ type PhraseCard = {
   times_retry_correct?: number | null;
   times_re_requested?: number | null;
   last_requested_again_at?: string | null;
+  learning_attempted?: number | null;
+learning_correct?: number | null;
+learning_almost?: number | null;
+learning_wrong?: number | null;
+last_learning_at?: string | null;
 };
 
 // Before saving the card into database, we deal with the drafts. This type is the pending draft, 
@@ -413,7 +418,17 @@ const [refreshMeaningPicker, setRefreshMeaningPicker] =
     card.times_spontaneous_wrong ?? 0;
   const retryCorrectOf = (card: PhraseCard) => card.times_retry_correct ?? 0;
   const reRequestedOf = (card: PhraseCard) => card.times_re_requested ?? 0;
+const learningAttemptedOf = (card: PhraseCard) =>
+  card.learning_attempted ?? 0;
 
+const learningCorrectOf = (card: PhraseCard) =>
+  card.learning_correct ?? 0;
+
+const learningAlmostOf = (card: PhraseCard) =>
+  card.learning_almost ?? 0;
+
+const learningWrongOf = (card: PhraseCard) =>
+  card.learning_wrong ?? 0;
   const daysSinceIso = (iso?: string | null) => {
     if (!iso) return null;
     const diffMs = Date.now() - new Date(iso).getTime();
@@ -434,6 +449,11 @@ const [refreshMeaningPicker, setRefreshMeaningPicker] =
 
   const retryCorrect = retryCorrectOf(card) * 0.7;
 
+  // Learning mode counts, but weaker than real chat/practice usage
+  const learningCorrect = learningCorrectOf(card) * 0.5;
+  const learningAlmost = learningAlmostOf(card) * 0.25;
+  const learningWrong = learningWrongOf(card) * -0.3;
+
   const total =
     promptedCorrect +
     promptedAlmost +
@@ -441,7 +461,10 @@ const [refreshMeaningPicker, setRefreshMeaningPicker] =
     spontaneousCorrect +
     spontaneousAlmost +
     spontaneousWrong +
-    retryCorrect;
+    retryCorrect +
+    learningCorrect +
+    learningAlmost +
+    learningWrong;
 
   return Math.max(0, total);
 };
@@ -1447,6 +1470,11 @@ const updatedMeaningList = Array.from(
       times_retry_correct: 0,
       times_re_requested: 0,
       last_requested_again_at: null,
+      learning_attempted: 0,
+learning_correct: 0,
+learning_almost: 0,
+learning_wrong: 0,
+last_learning_at: null,
     };
 
     const { error } = await supabase.from("phrases").insert(newCard);
@@ -1713,6 +1741,11 @@ const updatedMeaningList = Array.from(
       last_practiced_at: null,
       last_spontaneous_used_at: null,
       last_requested_again_at: null,
+      learning_attempted: 0,
+learning_correct: 0,
+learning_almost: 0,
+learning_wrong: 0,
+last_learning_at: null,
     };
 
     await supabase.from("phrases").update(updates).eq("id", id);
@@ -1994,6 +2027,11 @@ const updatedMeaningList = Array.from(
       times_retry_correct: 0,
       times_re_requested: 0,
       last_requested_again_at: null,
+      learning_attempted: 0,
+learning_correct: 0,
+learning_almost: 0,
+learning_wrong: 0,
+last_learning_at: null,
     };
 
     const { error: insertError } = await supabase.from("phrases").insert(newCard);
@@ -2245,6 +2283,18 @@ const updatedMeaningList = Array.from(
             Practice Mode →
           </span>
         </Link>
+
+        <Link href="/learning" className="link-reset">
+   <span
+            className="nav-button button-full"
+            style={{
+              display: "block",
+              textAlign: "center",
+              padding: "14px 16px",
+              fontSize: 16,
+            }}
+          >Learning Mode →</span>
+</Link>
 
         {selectedForPractice.length > 0 && (
           <button
