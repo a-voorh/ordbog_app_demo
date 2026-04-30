@@ -97,6 +97,7 @@ export default function LearningPage() {
   const [result, setResult] = useState<EvaluationResult | null>(null);
   const [checking, setChecking] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [hasRecordedResult, setHasRecordedResult] = useState(false);
   const [exerciseType, setExerciseType] = useState<"translation" | "gap">(
     "translation"
   );
@@ -157,6 +158,7 @@ export default function LearningPage() {
     setCard(pickRandomCard(loadedCards));
     setAnswer("");
     setResult(null);
+    setHasRecordedResult(false);
     setLoading(false);
   };
 
@@ -171,6 +173,7 @@ export default function LearningPage() {
     setCard(next);
     setAnswer("");
     setResult(null);
+    setHasRecordedResult(false);
   };
 
   const recordLearningResult = async (
@@ -264,7 +267,11 @@ export default function LearningPage() {
           corrected_answer_da: gapExercise.fullSentence,
         });
 
-        await recordLearningResult(card, isCorrect ? "correct" : "wrong");
+        if (!hasRecordedResult) {
+          await recordLearningResult(card, isCorrect ? "correct" : "wrong");
+          setHasRecordedResult(true);
+        }
+
         return;
       }
 
@@ -282,7 +289,11 @@ export default function LearningPage() {
 
       const data = await res.json();
       setResult(data);
-      await recordLearningResult(card, data.status);
+
+      if (!hasRecordedResult) {
+        await recordLearningResult(card, data.status);
+        setHasRecordedResult(true);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -337,6 +348,7 @@ export default function LearningPage() {
               setExerciseType("translation");
               setAnswer("");
               setResult(null);
+              setHasRecordedResult(false);
             }}
           >
             Translation
@@ -348,6 +360,7 @@ export default function LearningPage() {
               setExerciseType("gap");
               setAnswer("");
               setResult(null);
+              setHasRecordedResult(false);
             }}
             disabled={!gapExercise}
           >
@@ -377,7 +390,9 @@ export default function LearningPage() {
 
             <textarea
               value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
+              onChange={(e) => {
+                setAnswer(e.target.value);
+              }}
               placeholder="Write your Danish sentence..."
               rows={4}
               style={{
