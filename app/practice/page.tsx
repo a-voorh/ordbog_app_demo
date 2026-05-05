@@ -3,6 +3,7 @@
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
+import { TABLES } from "../../lib/tables";
 
 type PhraseCard = {
   id: string;
@@ -371,7 +372,7 @@ export default function PracticePage() {
   };
 
   const loadCardsFromSupabase = async () => {
-    const { data, error } = await supabase.from("phrases").select("*");
+    const { data, error } = await supabase.from(TABLES.phrases).select("*");
 
     if (error) {
       console.error("Failed to load phrases:", error);
@@ -553,7 +554,7 @@ export default function PracticePage() {
     const nowIso = new Date().toISOString();
 
     const { error } = await supabase
-      .from("phrases")
+      .from(TABLES.phrases)
       .update({
         times_re_requested: nextRequestedCount,
         last_requested_again_at: nowIso,
@@ -653,7 +654,7 @@ export default function PracticePage() {
       }
 
       const { data: existingDrafts, error: draftsLoadError } = await supabase
-        .from("phrase_drafts")
+        .from(TABLES.drafts)
         .select("phrase");
 
       if (draftsLoadError) {
@@ -690,7 +691,7 @@ export default function PracticePage() {
         source: "lookup",
       };
 
-      const { error } = await supabase.from("phrase_drafts").insert(newDraft);
+      const { error } = await supabase.from(TABLES.drafts).insert(newDraft);
 
       if (error) {
         console.error("Failed to save lookup draft:", error);
@@ -773,7 +774,7 @@ export default function PracticePage() {
     await Promise.all(
       updatedCards.map(async (card) => {
         const { error } = await supabase
-          .from("phrases")
+          .from(TABLES.phrases)
           .update({
             times_attempted: card.times_attempted ?? 0,
             times_correct: card.times_correct ?? 0,
@@ -1491,7 +1492,7 @@ export default function PracticePage() {
       }
 
       const { data: existingDrafts, error: draftsLoadError } = await supabase
-        .from("phrase_drafts")
+        .from(TABLES.drafts)
         .select("phrase");
 
       if (draftsLoadError) {
@@ -1528,7 +1529,7 @@ export default function PracticePage() {
         source: "practice",
       };
 
-      const { error } = await supabase.from("phrase_drafts").insert(newDraft);
+      const { error } = await supabase.from(TABLES.drafts).insert(newDraft);
 
       if (error) {
         console.error("Failed to save phrase draft from message:", error);
@@ -1586,7 +1587,7 @@ export default function PracticePage() {
       }
 
       const { data: existingDrafts, error: draftsLoadError } = await supabase
-        .from("phrase_drafts")
+        .from(TABLES.drafts)
         .select("phrase");
 
       if (draftsLoadError) {
@@ -1623,7 +1624,7 @@ export default function PracticePage() {
         source: "practice_feedback",
       };
 
-      const { error } = await supabase.from("phrase_drafts").insert(newDraft);
+      const { error } = await supabase.from(TABLES.drafts).insert(newDraft);
 
       if (error) {
         console.error("Failed to save phrase draft from feedback:", error);

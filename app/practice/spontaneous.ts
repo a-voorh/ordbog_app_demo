@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { TABLES } from "../../lib/tables";
 
 type SpontaneousStatus = "correct" | "almost" | "wrong" | "unused";
 
@@ -360,7 +361,7 @@ export async function evaluateAndApplySpontaneousUsage({
   const trimmedMessage = userMessage.trim();
   if (!trimmedMessage) return [];
 
-  const { data, error } = await supabase.from("phrases").select(
+  const { data, error } = await supabase.from(TABLES.phrases).select(
     "id, phrase, translation_en, short_explanation, created_at, times_attempted, times_correct, times_almost, last_practiced_at, last_spontaneous_used_at, times_spontaneous_correct, times_spontaneous_almost, times_spontaneous_wrong"
   );
 
@@ -379,7 +380,7 @@ export async function evaluateAndApplySpontaneousUsage({
 
   if (phraseIds.length > 0) {
     const { data: variantRows, error: variantError } = await supabase
-      .from("phrase_usage_variants_main")
+      .from(TABLES.variants)
       .select("phrase_id, variant_da, usable_for_matching")
       .in("phrase_id", phraseIds)
       .eq("usable_for_matching", true);
@@ -791,7 +792,7 @@ ${trimmedMessage}`,
     );
 
     const { error: updateError } = await supabase
-      .from("phrases")
+      .from(TABLES.phrases)
       .update(updatePayload)
       .eq("id", row.id);
 

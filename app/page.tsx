@@ -3,6 +3,7 @@
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../lib/supabase";
+import { TABLES } from "../lib/tables";
 
 // Introducing the phrase card format: we remember the phrase itself, 
 // its id in the database, translation to EN, explanation in DA, 
@@ -350,11 +351,11 @@ const [refreshMeaningPicker, setRefreshMeaningPicker] =
 
   useEffect(() => {
     const load = async () => {
-      const { data: phraseData } = await supabase.from("phrases").select("*");
+      const { data: phraseData } = await supabase.from(TABLES.phrases).select("*");
       setCards(sortByPhraseDa((phraseData || []) as PhraseCard[]));
 
       const { data: draftData } = await supabase
-        .from("phrase_drafts")
+        .from(TABLES.drafts)
         .select("*")
         .order("created_at", { ascending: false });
 
@@ -968,7 +969,7 @@ const updatedMeaningList = Array.from(
     const generatedVariants = await generateUsageVariants(input);
 
     const { error: deleteError } = await supabase
-      .from("phrase_usage_variants_main")
+      .from(TABLES.variants)
       .delete()
       .eq("phrase_id", phraseId);
 
@@ -991,7 +992,7 @@ const updatedMeaningList = Array.from(
     }));
 
     const { error: insertError } = await supabase
-      .from("phrase_usage_variants_main")
+      .from(TABLES.variants)
       .insert(rows);
 
     if (insertError) {
@@ -1022,7 +1023,7 @@ const updatedMeaningList = Array.from(
     const nowIso = new Date().toISOString();
 
     const { error: updateError } = await supabase
-      .from("phrases")
+      .from(TABLES.phrases)
       .update({
         times_re_requested: nextRequestedCount,
         last_requested_again_at: nowIso,
@@ -1183,7 +1184,7 @@ const updatedMeaningList = Array.from(
         source: "lookup",
       };
 
-      const { error } = await supabase.from("phrase_drafts").insert(newDraft);
+      const { error } = await supabase.from(TABLES.drafts).insert(newDraft);
 
       if (error) {
         console.error("Failed to save lookup draft:", error);
@@ -1259,7 +1260,7 @@ const updatedMeaningList = Array.from(
       source: "phrase_input",
     };
 
-    const { error } = await supabase.from("phrase_drafts").insert(newDraft);
+    const { error } = await supabase.from(TABLES.drafts).insert(newDraft);
 
     if (error) {
       alert("Could not save draft.");
@@ -1477,7 +1478,7 @@ learning_wrong: 0,
 last_learning_at: null,
     };
 
-    const { error } = await supabase.from("phrases").insert(newCard);
+    const { error } = await supabase.from(TABLES.phrases).insert(newCard);
 
     if (error) {
       console.error("Save phrase error:", error);
@@ -1623,7 +1624,7 @@ last_learning_at: null,
     const normalized = Array.from(new Set(tags.map(normalizeTag).filter(Boolean)));
 
     const { error } = await supabase
-      .from("phrases")
+      .from(TABLES.phrases)
       .update({ tags: normalized })
       .eq("id", cardId);
 
@@ -1647,7 +1648,7 @@ last_learning_at: null,
     const normalized = Array.from(new Set(tags.map(normalizeTag).filter(Boolean)));
 
     const { error } = await supabase
-      .from("phrase_drafts")
+      .from(TABLES.drafts)
       .update({ tags: normalized })
       .eq("id", draftId);
 
@@ -1710,7 +1711,7 @@ last_learning_at: null,
   };
 
   const deleteCard = async (id: string) => {
-    await supabase.from("phrases").delete().eq("id", id);
+    await supabase.from(TABLES.phrases).delete().eq("id", id);
 
     setCards((prev) => prev.filter((c) => c.id !== id));
     setSelectedForPractice((prev) => {
@@ -1748,7 +1749,7 @@ learning_wrong: 0,
 last_learning_at: null,
     };
 
-    await supabase.from("phrases").update(updates).eq("id", id);
+    await supabase.from(TABLES.phrases).update(updates).eq("id", id);
 
     setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)));
 
@@ -1804,7 +1805,7 @@ last_learning_at: null,
       extra_info: editDraft.extra_info,
     };
 
-    const { error } = await supabase.from("phrases").update(updates).eq("id", id);
+    const { error } = await supabase.from(TABLES.phrases).update(updates).eq("id", id);
 
     if (error) {
       alert("Could not save changes.");
@@ -1870,7 +1871,7 @@ last_learning_at: null,
     };
 
     const { error } = await supabase
-      .from("phrase_drafts")
+      .from(TABLES.drafts)
       .update(updates)
       .eq("id", draftId);
 
@@ -1915,7 +1916,7 @@ last_learning_at: null,
       extra_info: parsed.extra_info,
     };
 
-    const { error } = await supabase.from("phrases").update(updates).eq("id", card.id);
+    const { error } = await supabase.from(TABLES.phrases).update(updates).eq("id", card.id);
 
     if (error) {
       alert("Could not refresh this phrase.");
@@ -1979,7 +1980,7 @@ last_learning_at: null,
     };
 
     const { error } = await supabase
-      .from("phrase_drafts")
+      .from(TABLES.drafts)
       .update(updates)
       .eq("id", draft.id);
 
@@ -2034,7 +2035,7 @@ learning_wrong: 0,
 last_learning_at: null,
     };
 
-    const { error: insertError } = await supabase.from("phrases").insert(newCard);
+    const { error: insertError } = await supabase.from(TABLES.phrases).insert(newCard);
 
     if (insertError) {
       console.error("Save pending draft error:", insertError);
@@ -2052,7 +2053,7 @@ last_learning_at: null,
     });
 
     const { error: deleteError } = await supabase
-      .from("phrase_drafts")
+      .from(TABLES.drafts)
       .delete()
       .eq("id", draft.id);
 
@@ -2075,7 +2076,7 @@ last_learning_at: null,
   };
 
   const discardPendingDraft = async (draftId: string) => {
-    const { error } = await supabase.from("phrase_drafts").delete().eq("id", draftId);
+    const { error } = await supabase.from(TABLES.drafts).delete().eq("id", draftId);
 
     if (error) {
       alert("Could not discard draft.");
@@ -2125,7 +2126,7 @@ last_learning_at: null,
 
     for (const card of changedCards) {
       const { error } = await supabase
-        .from("phrases")
+        .from(TABLES.phrases)
         .update({ tags: card.tags })
         .eq("id", card.id);
 
@@ -2137,7 +2138,7 @@ last_learning_at: null,
 
     for (const draft of changedDrafts) {
       const { error } = await supabase
-        .from("phrase_drafts")
+        .from(TABLES.drafts)
         .update({ tags: draft.tags })
         .eq("id", draft.id);
 

@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { evaluateAndApplySpontaneousUsage } from "../../practice/spontaneous";
 import { buildFeedbackSummary } from "../../practice/buildFeedbackSummary";
+import { TABLES } from "../../../lib/tables";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -495,7 +496,7 @@ const loadPhraseVariants = async ({
   if (phraseIds.length === 0) return basePhrases;
 
   const { data: variantRows, error: variantError } = await supabase
-    .from("phrase_usage_variants_main")
+    .from(TABLES.variants)
     .select("phrase_id, variant_da, usable_for_matching")
     .in("phrase_id", phraseIds)
     .eq("usable_for_matching", true);

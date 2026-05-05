@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
+import { TABLES } from "../../lib/tables";
 
-const EXAMPLES_TABLE = "phrase_usage_variants_main";
+const EXAMPLES_TABLE = TABLES.variants;
 const RECENT_LEARNING_KEY = "recent_learning_items_v1";
 const RECENT_LIMIT = 18;
 const PREPOSITION_SESSION_TOTAL = 10;
@@ -402,7 +403,7 @@ export default function LearningPage() {
     setRecentLearningItems(storedRecent);
 
     const { data, error } = await supabase
-      .from("phrases")
+      .from(TABLES.phrases)
       .select(`
         id,
         phrase,
@@ -621,7 +622,7 @@ export default function LearningPage() {
     const nowIso = new Date().toISOString();
 
     const { error } = await supabase
-      .from("phrases")
+      .from(TABLES.phrases)
       .update({
         ...updates,
         learning_attempted: nextAttempted,
