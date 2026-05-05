@@ -57,6 +57,7 @@ type EvaluateAndApplySpontaneousUsageArgs = {
   previousAssistantMessage: string;
   currentTargetPhrases: TargetPhraseRef[];
   isFirstTurn?: boolean;
+  skipSpontaneousDetection?: boolean;
 };
 
 const RECENT_SPONTANEOUS_DAYS = 1;
@@ -357,7 +358,13 @@ export async function evaluateAndApplySpontaneousUsage({
   previousAssistantMessage,
   currentTargetPhrases,
   isFirstTurn = false,
+  skipSpontaneousDetection = false,
 }: EvaluateAndApplySpontaneousUsageArgs): Promise<SpontaneousMatch[]> {
+  if (skipSpontaneousDetection) {
+    console.log("[spontaneous] skipped by caller");
+    return [];
+  }
+
   const trimmedMessage = userMessage.trim();
   if (!trimmedMessage) return [];
 

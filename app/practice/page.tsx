@@ -1131,10 +1131,11 @@ export default function PracticePage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          cards: selectedCards,
-          history: historyBase,
-          userMessage: userText,
-        }),
+  cards: selectedCards,
+  history: historyBase,
+  userMessage: userText,
+  skipSpontaneousDetection: !!retryState,
+}),
       });
 
       const data = await res.json();

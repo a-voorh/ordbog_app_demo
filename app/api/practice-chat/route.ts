@@ -775,6 +775,8 @@ export async function POST(req: Request) {
       : [];
     const userMessage =
       typeof body.userMessage === "string" ? body.userMessage : "";
+      const skipSpontaneousDetection =
+  body.skipSpontaneousDetection === true;
 
     if (typedCards.length === 0) {
       return Response.json(
@@ -827,18 +829,19 @@ export async function POST(req: Request) {
 
       try {
         await evaluateAndApplySpontaneousUsage({
-          openai,
-          supabase,
-          userMessage,
-          previousAssistantMessage,
-          currentTargetPhrases: phrasesWithVariants.map((item) => ({
-            id: item.id,
-            phrase: item.phrase,
-            translation_en: item.translation_en,
-            short_explanation: item.short_explanation,
-          })),
-          isFirstTurn,
-        });
+  openai,
+  supabase,
+  userMessage,
+  previousAssistantMessage,
+  currentTargetPhrases: phrasesWithVariants.map((item) => ({
+    id: item.id,
+    phrase: item.phrase,
+    translation_en: item.translation_en,
+    short_explanation: item.short_explanation,
+  })),
+  isFirstTurn,
+  skipSpontaneousDetection,
+});
       } catch (err) {
         console.error("Spontaneous tracking failed:", err);
       }
