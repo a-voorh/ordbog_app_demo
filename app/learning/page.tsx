@@ -9,6 +9,7 @@ const EXAMPLES_TABLE = TABLES.variants;
 const RECENT_LEARNING_KEY = "recent_learning_items_v1";
 const RECENT_LIMIT = 18;
 const PREPOSITION_SESSION_TOTAL = 10;
+const GAP_SESSION_TOTAL = 10;
 
 type ExerciseType = "translation" | "gap" | "preposition";
 
@@ -66,6 +67,13 @@ type PrepositionQuest = {
 };
 
 type PrepositionSession = {
+  total: number;
+  current: number;
+  correct: number;
+  finished: boolean;
+};
+
+type GapSession = {
   total: number;
   current: number;
   correct: number;
@@ -214,18 +222,12 @@ const makePrepositionQuest = (sentence: string): PrepositionQuest | null => {
 
   if (!candidates.length) return null;
 
-  const shuffledCandidates = shuffle(candidates);
-
-  const blanksCount =
-    shuffledCandidates.length === 1 ? 1 : Math.random() < 0.7 ? 1 : 2;
-
-  const selectedCandidates = shuffledCandidates.slice(0, Math.min(blanksCount, 2));
+  const selectedCandidates = shuffle(candidates).slice(0, 1);
   const answers = selectedCandidates.map((item) => item.answer);
   const promptTokens = [...tokens];
 
-  selectedCandidates.forEach((item, index) => {
-    promptTokens[item.index] =
-      selectedCandidates.length === 1 ? "_____" : `_____(${index + 1})`;
+  selectedCandidates.forEach((item) => {
+    promptTokens[item.index] = "_____";
   });
 
   const distractors = shuffle(
@@ -245,11 +247,11 @@ const makePrepositionQuest = (sentence: string): PrepositionQuest | null => {
 const encouragementForScore = (correct: number, total: number) => {
   const ratio = correct / total;
 
-  if (ratio === 1) return "Perfect. Danish prepositions behaved for once.";
+  if (ratio === 1) return "Perfect. Danish behaved for once.";
   if (ratio >= 0.8) return "Very strong round. Only a few small traps.";
   if (ratio >= 0.6) return "Good work. This is exactly the kind of thing that improves by repetition.";
-  if (ratio >= 0.4) return "Decent practice round. Danish prepositions are tricky, but you are collecting patterns.";
-  return "No worries. Prepositions are tiny chaos-words. This is a good reason to keep drilling them.";
+  if (ratio >= 0.4) return "Decent practice round. You are collecting patterns.";
+  return "No worries. This is exactly why small focused rounds are useful.";
 };
 
 export default function LearningPage() {
@@ -260,12 +262,21 @@ export default function LearningPage() {
   const [answer, setAnswer] = useState("");
   const [prepositionAnswers, setPrepositionAnswers] = useState<string[]>([]);
   const [prepositionChecked, setPrepositionChecked] = useState(false);
+
   const [prepositionSession, setPrepositionSession] = useState<PrepositionSession>({
     total: PREPOSITION_SESSION_TOTAL,
     current: 1,
     correct: 0,
     finished: false,
   });
+
+  const [gapSession, setGapSession] = useState<GapSession>({
+    total: GAP_SESSION_TOTAL,
+    current: 1,
+    correct: 0,
+    finished: false,
+  });
+
   const [requireTargetPhrase, setRequireTargetPhrase] = useState(false);
   const [result, setResult] = useState<EvaluationResult | null>(null);
   const [checking, setChecking] = useState(false);
@@ -516,6 +527,7 @@ export default function LearningPage() {
 
   const nextCard = async () => {
     if (exerciseType === "preposition" && !prepositionChecked) return;
+    if (exerciseType === "gap" && !result) return;
 
     if (exerciseType === "preposition" && prepositionChecked) {
       if (prepositionSession.current >= prepositionSession.total) {
@@ -524,6 +536,15 @@ export default function LearningPage() {
       }
 
       setPrepositionSession((prev) => ({ ...prev, current: prev.current + 1 }));
+    }
+
+    if (exerciseType === "gap" && result) {
+      if (gapSession.current >= gapSession.total) {
+        setGapSession((prev) => ({ ...prev, finished: true }));
+        return;
+      }
+
+      setGapSession((prev) => ({ ...prev, current: prev.current + 1 }));
     }
 
     await moveToNextLearningItem();
@@ -540,6 +561,15 @@ export default function LearningPage() {
     if (type === "preposition") {
       setPrepositionSession({
         total: PREPOSITION_SESSION_TOTAL,
+        current: 1,
+        correct: 0,
+        finished: false,
+      });
+    }
+
+    if (type === "gap") {
+      setGapSession({
+        total: GAP_SESSION_TOTAL,
         current: 1,
         correct: 0,
         finished: false,
@@ -563,6 +593,7 @@ export default function LearningPage() {
       correct: 0,
       finished: false,
     });
+
     setPrepositionAnswers([]);
     setPrepositionChecked(false);
     setResult(null);
@@ -576,6 +607,28 @@ export default function LearningPage() {
     setCard(next.card);
     setSelectedExample(translatedExample);
     rememberLearningItem(next.card, translatedExample, "preposition");
+  };
+
+  const restartGapSession = async () => {
+    setGapSession({
+      total: GAP_SESSION_TOTAL,
+      current: 1,
+      correct: 0,
+      finished: false,
+    });
+
+    setAnswer("");
+    setResult(null);
+    setHasRecordedResult(false);
+
+    const next = pickRandomLearningItem(cards, "gap", examplesByPhraseId, card?.id);
+    if (!next) return;
+
+    const translatedExample = await ensureTranslation(next.example, next.card.id);
+
+    setCard(next.card);
+    setSelectedExample(translatedExample);
+    rememberLearningItem(next.card, translatedExample, "gap");
   };
 
   const hasAnyGapExercise = cards.some((item) =>
@@ -643,6 +696,7 @@ export default function LearningPage() {
 
     if (exerciseType !== "preposition" && !answer.trim()) return;
     if (exerciseType === "preposition" && prepositionChecked) return;
+    if (exerciseType === "gap" && result) return;
 
     setChecking(true);
     setResult(null);
@@ -699,12 +753,18 @@ export default function LearningPage() {
         const data = await res.json();
         const isCorrect = data.status === "correct";
 
+        if (isCorrect) {
+          setGapSession((prev) => ({ ...prev, correct: prev.correct + 1 }));
+        }
+
         setResult({
           status: isCorrect ? "correct" : "wrong",
           meaning_ok: isCorrect,
           natural_da: isCorrect,
           target_phrase_used: isCorrect,
-          feedback_da: isCorrect ? "Correct." : "Incorrect.",
+          feedback_da: isCorrect
+            ? "Correct. Nice and clean."
+            : "Not quite. Good one to notice.",
           corrected_answer_da: gapExercise.fullSentence,
         });
 
@@ -748,12 +808,17 @@ export default function LearningPage() {
       ? prepositionChecked ||
         !prepositionQuest ||
         prepositionAnswers.filter(Boolean).length !== prepositionQuest.answers.length
+      : exerciseType === "gap"
+      ? !!result || !answer.trim()
       : !answer.trim());
 
   const answeredPrepositionQuestions =
     exerciseType === "preposition"
       ? prepositionSession.current - (prepositionChecked ? 0 : 1)
       : 0;
+
+  const answeredGapQuestions =
+    exerciseType === "gap" ? gapSession.current - (result ? 0 : 1) : 0;
 
   const modeButtonStyle = (active: boolean) => ({
     width: "auto",
@@ -808,298 +873,365 @@ export default function LearningPage() {
     opacity: 0.92,
   };
 
-  if (loading) {
-    return (
-      <main className="app-page">
-        <div className="card">Loading learning mode...</div>
-      </main>
-    );
-  }
+ if (loading) {
+  return (
+    <main className="app-page">
+      <div className="card">Loading learning mode...</div>
+    </main>
+  );
+}
 
-  if (!card || !selectedExample) {
-    return (
-      <main className="app-page">
-        <div className="card">No cards found.</div>
-      </main>
-    );
-  }
+if (!card || !selectedExample) {
+  return (
+    <main className="app-page">
+      <div className="card">No cards found.</div>
+    </main>
+  );
+}
 
-  if (exerciseType === "preposition" && prepositionSession.finished) {
-    return (
-      <main className="app-page">
-        <div className="page-header">
-          <div className="page-header-main">
-            <h1 className="app-title">🧠 Learning Mode</h1>
-            <p className="app-subtitle">Preposition quest complete.</p>
-          </div>
-
-          <div className="page-header-side">
-            <Link href="/" className="link-reset">
-              <span className="nav-button">← Back</span>
-            </Link>
-          </div>
-        </div>
-
-        <div className="card card-strong">
-          <h2 className="section-title">
-            Score: {prepositionSession.correct}/{prepositionSession.total}
-          </h2>
-
-          <p style={{ marginTop: 12 }}>
-            {encouragementForScore(prepositionSession.correct, prepositionSession.total)}
-          </p>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
-            <button
-              className="primary-button"
-              style={primaryActionStyle}
-              onClick={restartPrepositionSession}
-            >
-              Start another 10
-            </button>
-
-            <button
-              className="nav-button"
-              style={secondaryActionStyle}
-              onClick={() => switchExerciseType("translation")}
-            >
-              Back to translation
-            </button>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
+if (exerciseType === "preposition" && prepositionSession.finished) {
   return (
     <main className="app-page">
       <div className="page-header">
         <div className="page-header-main">
           <h1 className="app-title">🧠 Learning Mode</h1>
-          <p className="app-subtitle">
-            Practice translating, filling gaps, prepositions, and recognizing phrase usage.
-          </p>
-        </div>
-
-        <div className="page-header-side">
-          <Link href="/" className="link-reset">
-            <span className="nav-button">← Back</span>
-          </Link>
+          <p className="app-subtitle">Preposition quest complete.</p>
         </div>
       </div>
 
-      <div className="card card-strong" style={{ marginBottom: 24 }}>
+      <div className="card card-strong">
         <h2 className="section-title">
-          {exerciseType === "translation"
-            ? "Translate into Danish"
-            : exerciseType === "gap"
-            ? "Choose the missing word"
-            : `Preposition quest ${prepositionSession.current}/${prepositionSession.total}`}
+          Score: {prepositionSession.correct}/{prepositionSession.total}
         </h2>
 
-        {exerciseType === "preposition" && (
-          <p className="meta-text" style={{ marginBottom: 12 }}>
-            Score so far: {prepositionSession.correct}/{answeredPrepositionQuestions}
-          </p>
-        )}
+        <p style={{ marginTop: 12 }}>
+          {encouragementForScore(prepositionSession.correct, prepositionSession.total)}
+        </p>
 
-        <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
           <button
-            className={exerciseType === "translation" ? "primary-button" : "nav-button"}
-            style={modeButtonStyle(exerciseType === "translation")}
-            onClick={() => switchExerciseType("translation")}
-          >
-            Translation
-          </button>
-
-          <button
-            className={exerciseType === "gap" ? "primary-button" : "nav-button"}
-            style={modeButtonStyle(exerciseType === "gap")}
-            onClick={() => switchExerciseType("gap")}
-            disabled={!hasAnyGapExercise}
-          >
-            Gap
-          </button>
-
-          <button
-            className={exerciseType === "preposition" ? "primary-button" : "nav-button"}
-            style={modeButtonStyle(exerciseType === "preposition")}
-            onClick={() => switchExerciseType("preposition")}
-            disabled={!hasAnyPrepositionQuest}
-          >
-            Prepositions
-          </button>
-        </div>
-
-        {exerciseType === "translation" ? (
-          <>
-            <p className="meta-text" style={{ marginBottom: 12 }}>English prompt:</p>
-
-            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 18 }}>
-              {englishPrompt}
-            </div>
-
-            {requireTargetPhrase && (
-              <p className="meta-text" style={{ marginBottom: 14 }}>
-                Use this phrase: <strong>{targetPhrase}</strong>
-              </p>
-            )}
-
-            <label className="meta-text" style={{ display: "block", marginBottom: 8 }}>
-              Your answer
-            </label>
-
-            <textarea
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              placeholder="Write your Danish sentence..."
-              rows={4}
-              style={{
-                width: "100%",
-                padding: 14,
-                borderRadius: 14,
-                border: "1px solid #d1d5db",
-                fontSize: 16,
-                marginBottom: 14,
-              }}
-            />
-
-            <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, fontSize: 14 }}>
-              <input
-                type="checkbox"
-                checked={requireTargetPhrase}
-                onChange={(e) => setRequireTargetPhrase(e.target.checked)}
-              />
-              Require target phrase
-            </label>
-          </>
-        ) : exerciseType === "gap" ? (
-          <>
-            <p className="meta-text" style={{ marginBottom: 12 }}>Choose the word that fits:</p>
-
-            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 18 }}>
-              {gapExercise?.prompt}
-            </div>
-
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
-              {gapExercise?.options.map((option, optionIndex) => (
-                <button
-                  key={`${option}-${optionIndex}`}
-                  className={answer === option ? "primary-button" : "nav-button"}
-                  style={optionButtonStyle(answer === option)}
-                  onClick={() => {
-                    setAnswer(option);
-                    setResult(null);
-                  }}
-                  disabled={checking}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="meta-text" style={{ marginBottom: 12 }}>
-              Fill in the missing prepositions:
-            </p>
-
-            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 18 }}>
-              {prepositionQuest?.prompt}
-            </div>
-
-            {prepositionQuest?.answers.map((_, index) => (
-              <div key={index} style={{ marginBottom: 16 }}>
-                <p className="meta-text" style={{ marginBottom: 8 }}>
-                  {prepositionQuest.answers.length === 1 ? "Blank" : `Blank ${index + 1}`}
-                </p>
-
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {prepositionQuest.options.map((option, optionIndex) => (
-                    <button
-                      key={`${index}-${option}-${optionIndex}`}
-                      className={
-                        prepositionAnswers[index] === option
-                          ? "primary-button"
-                          : "nav-button"
-                      }
-                      style={optionButtonStyle(prepositionAnswers[index] === option)}
-                      onClick={() => {
-                        setPrepositionAnswers((prev) => {
-                          const next = [...prev];
-                          next[index] = option;
-                          return next;
-                        });
-                        setResult(null);
-                      }}
-                      disabled={checking || prepositionChecked}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </>
-        )}
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 }}>
-          <button
-            className="nav-button"
+            className="primary-button"
             style={primaryActionStyle}
-            onClick={checkAnswer}
-            disabled={isCheckDisabled}
+            onClick={restartPrepositionSession}
           >
-            {checking ? "Checking..." : "Check answer"}
+            Start another 10
           </button>
 
           <button
             className="nav-button"
             style={secondaryActionStyle}
-            onClick={nextCard}
-            disabled={checking || (exerciseType === "preposition" && !prepositionChecked)}
+            onClick={() => switchExerciseType("translation")}
           >
-            {exerciseType === "preposition"
-              ? prepositionSession.current >= prepositionSession.total
-                ? "Finish quest"
-                : "Next →"
-              : "Next card →"}
+            ← Back to learning
           </button>
         </div>
       </div>
-
-      {result && (
-        <div className="card">
-          <h2 className="section-title">Result: {result.status}</h2>
-
-          <p style={{ marginTop: 10 }}>{result.feedback_da}</p>
-
-          {exerciseType === "preposition" && englishPrompt && (
-            <p style={{ marginTop: 12 }}>
-              <strong>English:</strong> {englishPrompt}
-            </p>
-          )}
-
-          {result.corrected_answer_da && (
-            <p style={{ marginTop: 12 }}>
-              <strong>{exerciseType === "translation" ? "Suggested version:" : "Full sentence:"}</strong>{" "}
-              {result.corrected_answer_da}
-            </p>
-          )}
-
-          {exerciseType === "translation" && (
-            <div className="meta-text" style={{ marginTop: 14 }}>
-              Meaning OK: {result.meaning_ok ? "yes" : "no"} · Natural Danish:{" "}
-              {result.natural_da ? "yes" : "no"} · Target phrase used:{" "}
-              {result.target_phrase_used ? "yes" : "no"}
-            </div>
-          )}
-
-          <p className="meta-text" style={{ marginTop: 12 }}>
-            Reference: {referenceAnswer}
-          </p>
-        </div>
-      )}
     </main>
   );
+}
+
+if (exerciseType === "gap" && gapSession.finished) {
+  return (
+    <main className="app-page">
+      <div className="page-header">
+        <div className="page-header-main">
+          <h1 className="app-title">🧠 Learning Mode</h1>
+          <p className="app-subtitle">Gap round complete.</p>
+        </div>
+      </div>
+
+      <div className="card card-strong">
+        <h2 className="section-title">
+          Score: {gapSession.correct}/{gapSession.total}
+        </h2>
+
+        <p style={{ marginTop: 12 }}>
+          {encouragementForScore(gapSession.correct, gapSession.total)}
+        </p>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
+          <button
+            className="primary-button"
+            style={primaryActionStyle}
+            onClick={restartGapSession}
+          >
+            Start another 10
+          </button>
+
+          <button
+            className="nav-button"
+            style={secondaryActionStyle}
+            onClick={() => switchExerciseType("translation")}
+          >
+            ← Back to learning
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+return (
+  <main className="app-page">
+    <div className="page-header">
+      <div className="page-header-main">
+        <h1 className="app-title">🧠 Learning Mode</h1>
+        <p className="app-subtitle">
+          Practice translating, filling gaps, prepositions, and recognizing phrase usage.
+        </p>
+      </div>
+
+      <div className="page-header-side">
+        <Link href="/" className="link-reset">
+          <span className="nav-button">← Back</span>
+        </Link>
+      </div>
+    </div>
+
+    <div className="card card-strong" style={{ marginBottom: 24 }}>
+      <h2 className="section-title">
+        {exerciseType === "translation"
+          ? "Translate into Danish"
+          : exerciseType === "gap"
+          ? `Gap round ${gapSession.current}/${gapSession.total}`
+          : `Preposition quest ${prepositionSession.current}/${prepositionSession.total}`}
+      </h2>
+
+      {exerciseType === "gap" && (
+        <p className="meta-text" style={{ marginBottom: 12 }}>
+          Score so far: {gapSession.correct}/{answeredGapQuestions}
+        </p>
+      )}
+
+      {exerciseType === "preposition" && (
+        <p className="meta-text" style={{ marginBottom: 12 }}>
+          Score so far: {prepositionSession.correct}/{answeredPrepositionQuestions}
+        </p>
+      )}
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+        <button
+          className={exerciseType === "translation" ? "primary-button" : "nav-button"}
+          style={modeButtonStyle(exerciseType === "translation")}
+          onClick={() => switchExerciseType("translation")}
+        >
+          Translation
+        </button>
+
+        <button
+          className={exerciseType === "gap" ? "primary-button" : "nav-button"}
+          style={modeButtonStyle(exerciseType === "gap")}
+          onClick={() => switchExerciseType("gap")}
+          disabled={!hasAnyGapExercise}
+        >
+          Gap
+        </button>
+
+        <button
+          className={exerciseType === "preposition" ? "primary-button" : "nav-button"}
+          style={modeButtonStyle(exerciseType === "preposition")}
+          onClick={() => switchExerciseType("preposition")}
+          disabled={!hasAnyPrepositionQuest}
+        >
+          Prepositions
+        </button>
+      </div>
+
+      {exerciseType === "translation" ? (
+        <>
+          <p className="meta-text" style={{ marginBottom: 12 }}>
+            English prompt:
+          </p>
+
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 18 }}>
+            {englishPrompt}
+          </div>
+
+          {requireTargetPhrase && (
+            <p className="meta-text" style={{ marginBottom: 14 }}>
+              Use this phrase: <strong>{targetPhrase}</strong>
+            </p>
+          )}
+
+          <label className="meta-text" style={{ display: "block", marginBottom: 8 }}>
+            Your answer
+          </label>
+
+          <textarea
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            placeholder="Write your Danish sentence..."
+            rows={4}
+            style={{
+              width: "100%",
+              padding: 14,
+              borderRadius: 14,
+              border: "1px solid #d1d5db",
+              fontSize: 16,
+              marginBottom: 14,
+            }}
+          />
+
+          <label
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
+              marginBottom: 16,
+              fontSize: 14,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={requireTargetPhrase}
+              onChange={(e) => setRequireTargetPhrase(e.target.checked)}
+            />
+            Require target phrase
+          </label>
+        </>
+      ) : exerciseType === "gap" ? (
+        <>
+          <p className="meta-text" style={{ marginBottom: 12 }}>
+            Choose the word that fits:
+          </p>
+
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 18 }}>
+            {gapExercise?.prompt}
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+            {gapExercise?.options.map((option, optionIndex) => (
+              <button
+                key={`${option}-${optionIndex}`}
+                className={answer === option ? "primary-button" : "nav-button"}
+                style={optionButtonStyle(answer === option)}
+                onClick={() => {
+                  setAnswer(option);
+                  setResult(null);
+                }}
+                disabled={checking || !!result}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="meta-text" style={{ marginBottom: 12 }}>
+            Fill in the missing prepositions:
+          </p>
+
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 18 }}>
+            {prepositionQuest?.prompt}
+          </div>
+
+          {prepositionQuest?.answers.map((_, index) => (
+            <div key={index} style={{ marginBottom: 16 }}>
+              <p className="meta-text" style={{ marginBottom: 8 }}>
+                {prepositionQuest.answers.length === 1
+                  ? "Choose the right preposition"
+                  : `Blank ${index + 1}`}
+              </p>
+
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {prepositionQuest.options.map((option, optionIndex) => (
+                  <button
+                    key={`${index}-${option}-${optionIndex}`}
+                    className={
+                      prepositionAnswers[index] === option
+                        ? "primary-button"
+                        : "nav-button"
+                    }
+                    style={optionButtonStyle(prepositionAnswers[index] === option)}
+                    onClick={() => {
+                      setPrepositionAnswers((prev) => {
+                        const next = [...prev];
+                        next[index] = option;
+                        return next;
+                      });
+                      setResult(null);
+                    }}
+                    disabled={checking || prepositionChecked}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 }}>
+        <button
+          className="nav-button"
+          style={primaryActionStyle}
+          onClick={checkAnswer}
+          disabled={isCheckDisabled}
+        >
+          {checking ? "Checking..." : "Check answer"}
+        </button>
+
+        <button
+          className="nav-button"
+          style={secondaryActionStyle}
+          onClick={nextCard}
+          disabled={
+            checking ||
+            (exerciseType === "preposition" && !prepositionChecked) ||
+            (exerciseType === "gap" && !result)
+          }
+        >
+          {exerciseType === "preposition"
+            ? prepositionSession.current >= prepositionSession.total
+              ? "Finish quest"
+              : "Next →"
+            : exerciseType === "gap"
+            ? gapSession.current >= gapSession.total
+              ? "Finish round"
+              : "Next →"
+            : "Next card →"}
+        </button>
+      </div>
+    </div>
+
+    {result && (
+      <div className="card">
+        <h2 className="section-title">Result: {result.status}</h2>
+
+        <p style={{ marginTop: 10 }}>{result.feedback_da}</p>
+
+        {(exerciseType === "preposition" || exerciseType === "gap") && englishPrompt && (
+          <p style={{ marginTop: 12 }}>
+            <strong>English:</strong> {englishPrompt}
+          </p>
+        )}
+
+        {result.corrected_answer_da && (
+          <p style={{ marginTop: 12 }}>
+            <strong>
+              {exerciseType === "translation"
+                ? "Suggested version:"
+                : "Full sentence:"}
+            </strong>{" "}
+            {result.corrected_answer_da}
+          </p>
+        )}
+
+        {exerciseType === "translation" && (
+          <div className="meta-text" style={{ marginTop: 14 }}>
+            Meaning OK: {result.meaning_ok ? "yes" : "no"} · Natural Danish:{" "}
+            {result.natural_da ? "yes" : "no"} · Target phrase used:{" "}
+            {result.target_phrase_used ? "yes" : "no"}
+          </div>
+        )}
+
+        <p className="meta-text" style={{ marginTop: 12 }}>
+          Reference: {referenceAnswer}
+        </p>
+      </div>
+    )}
+  </main>
+);
 }
