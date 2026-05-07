@@ -963,7 +963,7 @@ if (exerciseType === "gap" && gapSession.finished) {
             style={secondaryActionStyle}
             onClick={() => switchExerciseType("translation")}
           >
-            ← Back to learning
+            ← Back to learning mode
           </button>
         </div>
       </div>
