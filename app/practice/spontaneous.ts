@@ -60,6 +60,8 @@ type EvaluateAndApplySpontaneousUsageArgs = {
   skipSpontaneousDetection?: boolean;
 };
 
+const DEBUG_SPONTANEOUS = false;
+
 const RECENT_SPONTANEOUS_DAYS = 1;
 const RECENT_PRACTICE_DAYS = 1;
 const RECENT_UNTRAINED_DAYS = 9;
@@ -72,6 +74,12 @@ const SPONTANEOUS_MASTERY_BONUS_MAX_ATTEMPTS = 3;
 const MIN_CONFIDENCE = 0.6;
 const AMBIGUOUS_SINGLE_WORD_MIN_CONFIDENCE = 0.8;
 const MIN_OVERLAP_RATIO = 0.5;
+
+const debugLog = (...args: unknown[]) => {
+  if (DEBUG_SPONTANEOUS) {
+    console.log(...args);
+  }
+};
 
 const normalizeText = (value: string) =>
   value
@@ -111,10 +119,7 @@ const containsNormalizedSubstring = (haystack: string, needle: string) => {
   return ` ${normalizedHaystack} `.includes(` ${normalizedNeedle} `);
 };
 
-const getTokenOverlapRatio = (
-  detectedText: string,
-  candidateTexts: string[]
-) => {
+const getTokenOverlapRatio = (detectedText: string, candidateTexts: string[]) => {
   const detectedTokens = tokenize(detectedText);
   if (detectedTokens.length === 0) return 0;
 
@@ -208,20 +213,11 @@ const getFilteredNonTargetRows = (
     );
 
     if (isExactCurrentTarget) {
-      console.log(
-        "[spontaneous] filtered out exact current target:",
-        row.phrase,
-        row.translation_en
-      );
+      debugLog("[spontaneous] filtered out exact current target:", row.phrase);
       return false;
     }
 
-    if (
-      isRecentWithinDays(
-        row.last_spontaneous_used_at,
-        RECENT_SPONTANEOUS_DAYS
-      )
-    ) {
+    if (isRecentWithinDays(row.last_spontaneous_used_at, RECENT_SPONTANEOUS_DAYS)) {
       return false;
     }
 
@@ -230,10 +226,7 @@ const getFilteredNonTargetRows = (
     }
 
     const neverTrained = (row.times_attempted ?? 0) === 0;
-    const recentlyAdded = isRecentWithinDays(
-      row.created_at,
-      RECENT_UNTRAINED_DAYS
-    );
+    const recentlyAdded = isRecentWithinDays(row.created_at, RECENT_UNTRAINED_DAYS);
 
     if (neverTrained && recentlyAdded) {
       return false;
@@ -259,26 +252,20 @@ const getResurfacingPriority = (row: CandidatePhrase) => {
 };
 
 const getFirstTurnPool = (filteredRows: CandidatePhrase[]) => {
-  if (filteredRows.length <= UNLIMITED_POOL_THRESHOLD) {
-    return filteredRows;
-  }
+  if (filteredRows.length <= UNLIMITED_POOL_THRESHOLD) return filteredRows;
 
   return [...filteredRows]
     .sort((a, b) => getResurfacingPriority(b) - getResurfacingPriority(a))
     .slice(0, LARGE_DB_FIRST_TURN_CAP);
 };
 
-const getLaterTurnPool = (
-  filteredRows: CandidatePhrase[],
-  userMessage: string
-) => {
-  if (filteredRows.length <= UNLIMITED_POOL_THRESHOLD) {
-    return filteredRows;
-  }
+const getLaterTurnPool = (filteredRows: CandidatePhrase[], userMessage: string) => {
+  if (filteredRows.length <= UNLIMITED_POOL_THRESHOLD) return filteredRows;
 
   return [...filteredRows]
     .map((row) => {
       const textsToMatch = [row.phrase, ...row.matchingVariants];
+
       return {
         ...row,
         candidateScore:
@@ -296,9 +283,7 @@ const parseSpontaneousResponse = (
   try {
     const parsed = JSON.parse(rawText);
 
-    if (!parsed || !Array.isArray(parsed.spontaneousMatches)) {
-      return null;
-    }
+    if (!parsed || !Array.isArray(parsed.spontaneousMatches)) return null;
 
     return {
       spontaneousMatches: parsed.spontaneousMatches.map((item: any) => ({
@@ -318,7 +303,8 @@ const parseSpontaneousResponse = (
       })),
     };
   } catch (err) {
-    console.error("Failed to parse spontaneous response JSON:", rawText, err);
+    console.error("Failed to parse spontaneous response JSON:", err);
+    debugLog("[spontaneous] raw response:", rawText);
     return null;
   }
 };
@@ -361,7 +347,7 @@ export async function evaluateAndApplySpontaneousUsage({
   skipSpontaneousDetection = false,
 }: EvaluateAndApplySpontaneousUsageArgs): Promise<SpontaneousMatch[]> {
   if (skipSpontaneousDetection) {
-    console.log("[spontaneous] skipped by caller");
+    debugLog("[spontaneous] skipped by caller");
     return [];
   }
 
@@ -393,10 +379,7 @@ export async function evaluateAndApplySpontaneousUsage({
       .eq("usable_for_matching", true);
 
     if (variantError) {
-      console.error(
-        "Failed to load variants for spontaneous evaluation:",
-        variantError
-      );
+      console.error("Failed to load variants for spontaneous evaluation:", variantError);
     } else {
       const variantsByPhraseId = new Map<string, string[]>();
 
@@ -411,9 +394,7 @@ export async function evaluateAndApplySpontaneousUsage({
 
       allRows = phraseRows.map((row) => ({
         ...row,
-        matchingVariants: Array.from(
-          new Set(variantsByPhraseId.get(row.id) || [])
-        ),
+        matchingVariants: Array.from(new Set(variantsByPhraseId.get(row.id) || [])),
       }));
     }
   }
@@ -425,7 +406,7 @@ export async function evaluateAndApplySpontaneousUsage({
     : getLaterTurnPool(filteredRows, trimmedMessage);
 
   if (initialCandidatePool.length === 0) {
-    console.log("[spontaneous] candidate pool is empty");
+    debugLog("[spontaneous] candidate pool is empty");
     return [];
   }
 
@@ -434,7 +415,7 @@ export async function evaluateAndApplySpontaneousUsage({
   );
 
   if (candidatePool.length === 0) {
-    console.log("[spontaneous] no candidates with local text evidence");
+    debugLog("[spontaneous] no candidates with local text evidence");
     return [];
   }
 
@@ -453,8 +434,7 @@ export async function evaluateAndApplySpontaneousUsage({
             (target) =>
               `- phraseId: ${target.id || "(no id)"}
   Base phrase: ${target.phrase}
-  Target meaning in English: ${target.translation_en || "(not provided)"}
-  Target explanation in Danish: ${target.short_explanation || "(not provided)"}`
+  Meaning in English: ${target.translation_en || "(not provided)"}`
           )
           .join("\n")
       : "(none)";
@@ -463,77 +443,62 @@ export async function evaluateAndApplySpontaneousUsage({
     .map((row) => {
       const variantsText =
         row.matchingVariants.length > 0
-          ? `\n  Accepted stored variants:\n${row.matchingVariants
+          ? `\n  Accepted variants:\n${row.matchingVariants
               .map((variant) => `  - ${variant}`)
               .join("\n")}`
           : "";
 
       return `- phraseId: ${row.id}
   Base phrase: ${row.phrase}
-  Meaning in English: ${row.translation_en || "(not provided)"}
-  Explanation in Danish: ${row.short_explanation || "(not provided)"}${variantsText}`;
+  Meaning in English: ${row.translation_en || "(not provided)"}${variantsText}`;
     })
     .join("\n");
 
-  console.log("[spontaneous] user message:", trimmedMessage);
-  console.log("[spontaneous] total phrases:", allRows.length);
-  console.log("[spontaneous] filtered pool size:", filteredRows.length);
-  console.log("[spontaneous] initial candidate pool size:", initialCandidatePool.length);
-  console.log("[spontaneous] evidence-filtered candidate pool size:", candidatePool.length);
-  console.log(
-    "[spontaneous] candidate phrases:",
-    candidatePool.map((row) => ({
-      id: row.id,
-      phrase: row.phrase,
-      translation_en: row.translation_en,
-      short_explanation: row.short_explanation,
-      matchingVariants: row.matchingVariants,
-    }))
-  );
+  debugLog("[spontaneous] user message:", trimmedMessage);
+  debugLog("[spontaneous] total phrases:", allRows.length);
+  debugLog("[spontaneous] filtered pool size:", filteredRows.length);
+  debugLog("[spontaneous] initial candidate pool size:", initialCandidatePool.length);
+  debugLog("[spontaneous] evidence-filtered candidate pool size:", candidatePool.length);
 
   const evaluationResponse = await openai.responses.create({
     model: "gpt-4.1-mini",
     input: [
       {
         role: "system",
-        content: `You silently evaluate whether a learner used saved Danish phrases spontaneously in their latest message.
+        content: `You evaluate whether a learner used saved Danish phrases spontaneously.
 
 Current target phrase meanings:
 ${currentTargetBlock}
 
-Candidate non-target saved phrases and accepted stored variants:
+Candidate non-target saved phrases and accepted variants:
 ${candidatePhraseBlock}
 
 Rules:
-- detect real usage only, not merely related ideas
-- do not infer usage from meaning alone
-- there must be visible textual evidence in the learner message: exact phrase, accepted stored variant, natural inflection, or a very close grammatical form
-- if the learner only expresses a related idea with different words, do not include the phrase
-- accept natural inflections
-- accepted stored variants count as valid usage of their base phrase
-- natural inflected forms of accepted stored variants also count
-- the same surface word may exist with different meanings; you must match by meaning, not by surface form alone
-- ignore current target phrases in their current meanings
-- if the learner uses the same surface word as a current target but with a different meaning, that may count for a non-target candidate with that different meaning
-- decide whether usage is truly spontaneous
-- copied or directly repeated material from the previous assistant message is not spontaneous
-- only include phrases that were actually used or clearly attempted
-- do not include phrases with status "unused"
-- only return phrases from the candidate non-target saved phrases list
-- ALWAYS return the exact candidate phraseId from the list
-- in the "phrase" field, return the base phrase exactly as listed for that phraseId
-- put the exact learner wording into detectedText
+- Detect real usage only, not related ideas.
+- Require visible textual evidence in the learner message: exact phrase, accepted variant, natural inflection, or very close grammatical form.
+- Accepted variants and natural inflections of variants count.
+- Match by meaning when the same surface word can have different meanings.
+- Ignore current target phrases in their current meanings.
+- Do not count copied or directly repeated material from the previous assistant message.
+- Only include phrases actually used or clearly attempted.
+- Do not include unused phrases.
+- Only return phrases from the candidate list.
+- Always return the exact candidate phraseId.
+- Return the base phrase exactly as listed.
+- Put the exact learner wording into detectedText.
 
-Confidence rules:
-- 1.0 = very clear, exact match of the phrase or variant
-- 0.9 = clear match with minor variation
-- 0.8 = likely correct usage but slightly uncertain
-- below 0.6 = uncertain or weak match
+Status:
+- correct = natural and correct usage.
+- almost = understandable but slightly unnatural or grammatically imperfect.
+- wrong = clear attempt, but meaning or usage is wrong.
 
-You MUST assign a realistic confidence score.
-Do NOT output 0 unless there is truly no confidence.
+Confidence:
+- 1.0 = exact phrase or variant.
+- 0.9 = clear match with minor variation.
+- 0.8 = likely match but slightly uncertain.
+- below 0.6 = weak or uncertain.
 
-Return ONLY valid JSON with exactly this structure:
+Return ONLY valid JSON:
 {
   "spontaneousMatches": [
     {
@@ -600,19 +565,15 @@ ${trimmedMessage}`,
   const parsed = parseSpontaneousResponse(evaluationResponse.output_text ?? "");
   if (!parsed) return [];
 
-  console.log("[spontaneous] raw model matches:", parsed.spontaneousMatches);
+  debugLog("[spontaneous] raw model matches:", parsed.spontaneousMatches);
 
   const dedupedMatches = dedupeByStrongestMatch(parsed.spontaneousMatches);
 
-  console.log("[spontaneous] deduped model matches:", dedupedMatches);
+  debugLog("[spontaneous] deduped model matches:", dedupedMatches);
 
   const validMatches = dedupedMatches.filter((match) => {
     if (!match.phraseId || !candidateMapById.has(match.phraseId)) {
-      console.log(
-        "[spontaneous] skipped phraseId not in candidate pool:",
-        match.phraseId,
-        match.phrase
-      );
+      debugLog("[spontaneous] skipped phraseId not in candidate pool:", match.phraseId);
       return false;
     }
 
@@ -620,89 +581,49 @@ ${trimmedMessage}`,
     if (!candidateRow) return false;
 
     if (currentTargetIds.has(match.phraseId)) {
-      console.log(
-        "[spontaneous] skipped current target returned by model:",
-        match.phraseId,
-        match.phrase
-      );
+      debugLog("[spontaneous] skipped current target returned by model:", match.phraseId);
       return false;
     }
 
     if (match.phrase !== candidateRow.phrase) {
-      console.log(
-        "[spontaneous] skipped mismatched phrase label for phraseId:",
-        match.phraseId,
-        "model:",
-        match.phrase,
-        "expected:",
-        candidateRow.phrase
-      );
+      debugLog("[spontaneous] skipped mismatched phrase label:", match.phraseId);
       return false;
     }
 
     if (!match.isSpontaneous) {
-      console.log("[spontaneous] skipped non-spontaneous match:", match.phrase);
+      debugLog("[spontaneous] skipped non-spontaneous match:", match.phrase);
       return false;
     }
 
     if (match.status === "unused") {
-      console.log("[spontaneous] skipped unused match:", match.phrase);
+      debugLog("[spontaneous] skipped unused match:", match.phrase);
       return false;
     }
 
     if (!match.detectedText.trim()) {
-      console.log(
-        "[spontaneous] skipped match with empty detectedText:",
-        match.phrase
-      );
+      debugLog("[spontaneous] skipped empty detectedText:", match.phrase);
       return false;
     }
 
     if (!containsNormalizedSubstring(trimmedMessage, match.detectedText)) {
-      console.log(
-        "[spontaneous] skipped detectedText not found in learner message:",
-        match.phrase,
-        match.detectedText
-      );
+      debugLog("[spontaneous] skipped detectedText not found:", match.phrase);
       return false;
     }
 
-    const candidateTexts = [
-      candidateRow.phrase,
-      ...candidateRow.matchingVariants,
-    ];
-
-    const overlapRatio = getTokenOverlapRatio(
-      match.detectedText,
-      candidateTexts
-    );
+    const candidateTexts = [candidateRow.phrase, ...candidateRow.matchingVariants];
+    const overlapRatio = getTokenOverlapRatio(match.detectedText, candidateTexts);
 
     if (overlapRatio < MIN_OVERLAP_RATIO) {
-      console.log(
-        "[spontaneous] skipped low overlap between detectedText and candidate:",
-        match.phrase,
-        match.detectedText,
-        overlapRatio
-      );
+      debugLog("[spontaneous] skipped low overlap:", match.phrase, overlapRatio);
       return false;
     }
 
-    if (
-      isClearlyCopiedFromAssistant(
-        match.detectedText,
-        previousAssistantMessage
-      )
-    ) {
-      console.log(
-        "[spontaneous] skipped copied from previous assistant message:",
-        match.phrase,
-        match.detectedText
-      );
+    if (isClearlyCopiedFromAssistant(match.detectedText, previousAssistantMessage)) {
+      debugLog("[spontaneous] skipped copied from assistant:", match.phrase);
       return false;
     }
 
-    const candidateTokenCount = tokenize(stripLeadingAt(candidateRow.phrase))
-      .length;
+    const candidateTokenCount = tokenize(stripLeadingAt(candidateRow.phrase)).length;
 
     const requiredConfidence =
       candidateTokenCount <= 1
@@ -710,8 +631,8 @@ ${trimmedMessage}`,
         : MIN_CONFIDENCE;
 
     if (match.confidence < requiredConfidence) {
-      console.log(
-        "[spontaneous] skipped low-confidence match:",
+      debugLog(
+        "[spontaneous] skipped low confidence:",
         match.phrase,
         match.confidence,
         "required:",
@@ -723,98 +644,90 @@ ${trimmedMessage}`,
     return true;
   });
 
-  console.log("[spontaneous] valid non-target matches:", validMatches);
+  debugLog("[spontaneous] valid non-target matches:", validMatches);
 
   if (validMatches.length === 0) {
-    console.log("[spontaneous] no valid non-target spontaneous matches to update");
+    debugLog("[spontaneous] no valid matches to update");
     return dedupedMatches;
   }
 
   const nowIso = new Date().toISOString();
 
-  for (const match of validMatches) {
-    const row = candidateMapById.get(match.phraseId);
-    if (!row) continue;
+  await Promise.all(
+    validMatches.map(async (match) => {
+      const row = candidateMapById.get(match.phraseId);
+      if (!row) return;
 
-    const nextSpontaneousCorrect =
-      (row.times_spontaneous_correct ?? 0) +
-      (match.status === "correct" ? 1 : 0);
+      const nextSpontaneousCorrect =
+        (row.times_spontaneous_correct ?? 0) +
+        (match.status === "correct" ? 1 : 0);
 
-    const nextSpontaneousAlmost =
-      (row.times_spontaneous_almost ?? 0) +
-      (match.status === "almost" ? 1 : 0);
+      const nextSpontaneousAlmost =
+        (row.times_spontaneous_almost ?? 0) +
+        (match.status === "almost" ? 1 : 0);
 
-    const nextSpontaneousWrong =
-      (row.times_spontaneous_wrong ?? 0) +
-      (match.status === "wrong" ? 1 : 0);
+      const nextSpontaneousWrong =
+        (row.times_spontaneous_wrong ?? 0) +
+        (match.status === "wrong" ? 1 : 0);
 
-    const currentAttempts = row.times_attempted ?? 0;
+      const currentAttempts = row.times_attempted ?? 0;
 
-    const qualifiesForMasteryBoost =
-      currentAttempts >= SPONTANEOUS_MASTERY_BONUS_MIN_ATTEMPTS &&
-      currentAttempts <= SPONTANEOUS_MASTERY_BONUS_MAX_ATTEMPTS;
+      const qualifiesForMasteryBoost =
+        currentAttempts >= SPONTANEOUS_MASTERY_BONUS_MIN_ATTEMPTS &&
+        currentAttempts <= SPONTANEOUS_MASTERY_BONUS_MAX_ATTEMPTS;
 
-    let nextAttempts = currentAttempts;
-    let nextCorrect = row.times_correct ?? 0;
-    let nextAlmost = row.times_almost ?? 0;
-    let nextLastPracticedAt = row.last_practiced_at;
+      let nextAttempts = currentAttempts;
+      let nextCorrect = row.times_correct ?? 0;
+      let nextAlmost = row.times_almost ?? 0;
+      let nextLastPracticedAt = row.last_practiced_at;
 
-    if (qualifiesForMasteryBoost) {
-      if (match.status === "correct") {
-        nextAttempts += 1;
-        nextCorrect += 1;
-        nextLastPracticedAt = nowIso;
-      } else if (match.status === "almost") {
-        nextAttempts += 1;
-        nextAlmost += 1;
-        nextLastPracticedAt = nowIso;
+      if (qualifiesForMasteryBoost) {
+        if (match.status === "correct") {
+          nextAttempts += 1;
+          nextCorrect += 1;
+          nextLastPracticedAt = nowIso;
+        } else if (match.status === "almost") {
+          nextAttempts += 1;
+          nextAlmost += 1;
+          nextLastPracticedAt = nowIso;
+        }
       }
-    }
 
-    const updatePayload: Record<string, string | number | null> = {
-      times_spontaneous_correct: nextSpontaneousCorrect,
-      times_spontaneous_almost: nextSpontaneousAlmost,
-      times_spontaneous_wrong: nextSpontaneousWrong,
-      last_spontaneous_used_at: nowIso,
-    };
+      const updatePayload: Record<string, string | number | null> = {
+        times_spontaneous_correct: nextSpontaneousCorrect,
+        times_spontaneous_almost: nextSpontaneousAlmost,
+        times_spontaneous_wrong: nextSpontaneousWrong,
+        last_spontaneous_used_at: nowIso,
+      };
 
-    if (qualifiesForMasteryBoost && match.status === "correct") {
-      updatePayload.times_attempted = nextAttempts;
-      updatePayload.times_correct = nextCorrect;
-      updatePayload.last_practiced_at = nextLastPracticedAt;
-    }
+      if (qualifiesForMasteryBoost && match.status === "correct") {
+        updatePayload.times_attempted = nextAttempts;
+        updatePayload.times_correct = nextCorrect;
+        updatePayload.last_practiced_at = nextLastPracticedAt;
+      }
 
-    if (qualifiesForMasteryBoost && match.status === "almost") {
-      updatePayload.times_attempted = nextAttempts;
-      updatePayload.times_almost = nextAlmost;
-      updatePayload.last_practiced_at = nextLastPracticedAt;
-    }
+      if (qualifiesForMasteryBoost && match.status === "almost") {
+        updatePayload.times_attempted = nextAttempts;
+        updatePayload.times_almost = nextAlmost;
+        updatePayload.last_practiced_at = nextLastPracticedAt;
+      }
 
-    console.log(
-      "[spontaneous] updating phrase:",
-      row.id,
-      row.phrase,
-      row.translation_en,
-      updatePayload
-    );
+      debugLog("[spontaneous] updating phrase:", row.id, row.phrase);
 
-    const { error: updateError } = await supabase
-      .from(TABLES.phrases)
-      .update(updatePayload)
-      .eq("id", row.id);
+      const { error: updateError } = await supabase
+        .from(TABLES.phrases)
+        .update(updatePayload)
+        .eq("id", row.id);
 
-    if (updateError) {
-      console.error("Failed to update spontaneous phrase stats:", updateError);
-      continue;
-    }
-
-    console.log(
-      "[spontaneous] updated successfully:",
-      row.id,
-      row.phrase,
-      row.translation_en
-    );
-  }
-
+      if (updateError) {
+        console.error("Failed to update spontaneous phrase stats:", updateError);
+      }
+    })
+  );
+//console.log(
+  //`[spontaneous] ${validMatches.length} spontaneous phrase${
+ //   validMatches.length === 1 ? "" : "s"
+  //} detected`
+//);
   return dedupedMatches;
 }

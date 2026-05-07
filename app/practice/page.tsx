@@ -375,7 +375,7 @@ export default function PracticePage() {
     const { data, error } = await supabase.from(TABLES.phrases).select("*");
 
     if (error) {
-      console.error("Failed to load phrases:", error);
+      //console.error("Failed to load phrases:", error);
       return [];
     }
 
@@ -394,14 +394,14 @@ export default function PracticePage() {
     const data = await res.json();
 
     if (!res.ok) {
-      console.error("Analyze phrase backend error:", data);
+      //console.error("Analyze phrase backend error:", data);
       return null;
     }
 
     try {
       return JSON.parse(data.result) as AnalyzeResult;
     } catch {
-      console.error("Invalid JSON from analyze phrase route:", data.result);
+      //console.error("Invalid JSON from analyze phrase route:", data.result);
       return null;
     }
   };
@@ -562,7 +562,7 @@ export default function PracticePage() {
       .eq("id", existingCard.id);
 
     if (error) {
-      console.error("Failed to bump requested-again stats:", error);
+      //console.error("Failed to bump requested-again stats:", error);
       return true;
     }
 
@@ -613,7 +613,7 @@ export default function PracticePage() {
       const data = await res.json();
 
       if (!res.ok) {
-        console.error("Lookup backend error:", data);
+        //console.error("Lookup backend error:", data);
         setLookupStatus("Could not look that up.");
         return;
       }
@@ -622,11 +622,11 @@ export default function PracticePage() {
         const parsed = JSON.parse(data.result) as LookupResult;
         setLookupResult(parsed);
       } catch {
-        console.error("Invalid JSON from lookup route:", data.result);
+        //console.error("Invalid JSON from lookup route:", data.result);
         setLookupStatus("Lookup returned invalid data.");
       }
     } catch (err) {
-      console.error("Failed to look up word:", err);
+      //console.error("Failed to look up word:", err);
       setLookupStatus("Could not look that up.");
     } finally {
       setLookupLoading(false);
@@ -658,7 +658,7 @@ export default function PracticePage() {
         .select("phrase");
 
       if (draftsLoadError) {
-        console.error("Failed to check existing drafts:", draftsLoadError);
+        //console.error("Failed to check existing drafts:", draftsLoadError);
         setLookupStatus("Could not check drafts.");
         return;
       }
@@ -694,14 +694,14 @@ export default function PracticePage() {
       const { error } = await supabase.from(TABLES.drafts).insert(newDraft);
 
       if (error) {
-        console.error("Failed to save lookup draft:", error);
+        //console.error("Failed to save lookup draft:", error);
         setLookupStatus("Failed to save draft.");
         return;
       }
 
       setLookupStatus(`Draft created: ${correctedPhrase}`);
     } catch (err) {
-      console.error("Failed to save lookup draft:", err);
+      //console.error("Failed to save lookup draft:", err);
       setLookupStatus("Something went wrong.");
     } finally {
       setSavingLookupDraft(false);
@@ -734,7 +734,7 @@ export default function PracticePage() {
 
       const data = await res.json();
       if (!res.ok) {
-        console.error("Translate backend error:", data);
+        //console.error("Translate backend error:", data);
         return;
       }
 
@@ -750,7 +750,7 @@ export default function PracticePage() {
         [messageIndex]: true,
       }));
     } catch (err) {
-      console.error("Failed to translate message:", err);
+      //console.error("Failed to translate message:", err);
     } finally {
       setTranslatingMessageIndex(null);
     }
@@ -788,9 +788,9 @@ export default function PracticePage() {
           .eq("id", card.id);
 
         if (error) {
-          console.error("❌ Supabase update failed:", card.phrase, error);
+          //console.error("❌ Supabase update failed:", card.phrase, error);
         } else {
-          console.log("✅ Updated:", card.phrase);
+          //console.log("✅ Updated:", card.phrase);
         }
       })
     );
@@ -1765,7 +1765,10 @@ export default function PracticePage() {
       : practiceSource === "selected"
         ? "Selected phrases"
         : practiceSource;
-
+const formatMeaningText = (text: string) => {
+  const cleaned = text.trim().replace(/\.$/, "");
+  return cleaned ? cleaned.charAt(0).toLowerCase() + cleaned.slice(1) : cleaned;
+};
          return (
   <main className="app-page">
     <div className="page-header">
@@ -1781,32 +1784,18 @@ export default function PracticePage() {
       </div>
     </div>
 
-    <div className="card card-strong" style={{ marginBottom: 24 }}>
-      <div
-        className="controls-row-spread"
-        style={{ marginBottom: settingsOpen ? 14 : 0 }}
-      >
-        <div>
+    {practiceStage === "setup" && (
+      <div className="card card-strong" style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 14 }}>
           <h2 className="section-title" style={{ marginBottom: 4 }}>
             Practice setup
           </h2>
           <div className="meta-text">
-            Choose your pack first, then decide whether to go straight to chat or warm up with exercises.
+            Choose your pack, then start chatting or warm up with exercises.
           </div>
         </div>
 
-        <button
-          onClick={() => setSettingsOpen((prev) => !prev)}
-          className="button-secondary"
-        >
-          {settingsOpen ? "Hide settings" : "Show settings"}
-        </button>
-      </div>
-
-      {settingsOpen && (
         <div className="mini-box" style={{ marginBottom: 0 }}>
-          <h3 className="subsection-title">Practice settings</h3>
-
           <div className="controls-row">
             <div>
               <label className="meta-text" style={{ display: "block", marginBottom: 6 }}>
@@ -1844,34 +1833,20 @@ export default function PracticePage() {
                 ))}
               </select>
             </div>
-
-            <div>
-              <label className="meta-text" style={{ display: "block", marginBottom: 6 }}>
-                Hover card English
-              </label>
-              <button
-                onClick={() => setShowEnglishInHover((prev) => !prev)}
-                className="button-secondary"
-              >
-                {showEnglishInHover ? "Hide English" : "Show English"}
-              </button>
-            </div>
           </div>
 
-          {practiceStage === "setup" && (
-            <div style={{ marginTop: 16 }}>
-              <button
-                onClick={goToPreview}
-                disabled={cards.length === 0}
-                className={`button-primary ${cards.length === 0 ? "button-disabled" : ""}`}
-              >
-                Create pack
-              </button>
-            </div>
-          )}
+          <div style={{ marginTop: 16 }}>
+            <button
+              onClick={goToPreview}
+              disabled={cards.length === 0}
+              className={`button-primary ${cards.length === 0 ? "button-disabled" : ""}`}
+            >
+              Create pack
+            </button>
+          </div>
         </div>
-      )}
-    </div>
+      </div>
+    )}
 
     {practiceStage === "preview" && (
       <div className="card" style={{ marginBottom: 24 }}>
@@ -1890,14 +1865,7 @@ export default function PracticePage() {
         {selectedCards.length === 0 ? (
           <p>No phrases available for this pack.</p>
         ) : (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              marginBottom: 16,
-            }}
-          >
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
             {selectedCards.map((card) => (
               <span
                 key={card.id}
@@ -1927,10 +1895,7 @@ export default function PracticePage() {
             Exercises + chat
           </button>
 
-          <button
-            onClick={() => setPracticeStage("setup")}
-            className="button-secondary"
-          >
+          <button onClick={() => setPracticeStage("setup")} className="button-secondary">
             Back
           </button>
         </div>
@@ -2016,7 +1981,7 @@ export default function PracticePage() {
                               padding: "8px 10px",
                             }}
                           >
-                            {matchedOption.meaning}
+                            {formatMeaningText(matchedOption.meaning)}
                           </div>
 
                           <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -2054,9 +2019,7 @@ export default function PracticePage() {
                       type="button"
                       onClick={() => assignMeaningToActivePhrase(option.optionId)}
                       disabled={!activeCanTakeThis}
-                      className={`button-secondary ${
-                        !activeCanTakeThis ? "button-disabled" : ""
-                      }`}
+                      className={`button-secondary ${!activeCanTakeThis ? "button-disabled" : ""}`}
                       style={{
                         width: "100%",
                         textAlign: "left",
@@ -2069,16 +2032,10 @@ export default function PracticePage() {
                       }}
                     >
                       <div style={{ width: "100%" }}>
-                        <div>{option.meaning}</div>
+                        <div>{formatMeaningText(option.meaning)}</div>
 
                         {assignedPhrase && (
-                          <div
-                            style={{
-                              marginTop: 6,
-                              fontSize: 12,
-                              color: "#6b7280",
-                            }}
-                          >
+                          <div style={{ marginTop: 6, fontSize: 12, color: "#6b7280" }}>
                             Matched to: {assignedPhrase.phrase}
                           </div>
                         )}
@@ -2101,10 +2058,7 @@ export default function PracticePage() {
             }}
           >
             <strong>Nice — you matched all phrases correctly.</strong>
-            <button
-              onClick={() => void finishMeaningExercise()}
-              className="button-primary"
-            >
+            <button onClick={() => void finishMeaningExercise()} className="button-primary">
               Continue to chat
             </button>
           </div>
@@ -2120,10 +2074,7 @@ export default function PracticePage() {
               Continue to chat
             </button>
 
-            <button
-              onClick={() => setPracticeStage("preview")}
-              className="button-secondary"
-            >
+            <button onClick={() => setPracticeStage("preview")} className="button-secondary">
               Back
             </button>
           </div>
@@ -2131,10 +2082,7 @@ export default function PracticePage() {
 
         {allMeaningMatched && (
           <div className="controls-row" style={{ marginTop: 16 }}>
-            <button
-              onClick={() => setPracticeStage("preview")}
-              className="button-secondary"
-            >
+            <button onClick={() => setPracticeStage("preview")} className="button-secondary">
               Back
             </button>
           </div>
@@ -2142,230 +2090,136 @@ export default function PracticePage() {
       </div>
     )}
 
-    <div className="card card-quiet" style={{ marginBottom: 24 }}>
-      <div className="controls-row-spread">
-        <div>
-          <h2 className="subsection-title" style={{ marginBottom: 4 }}>
-            Quick lookup
-          </h2>
-          <div className="meta-text">
-            Optional help if you get stuck on a word.
-          </div>
-        </div>
-
-        <button onClick={toggleLookupOpen} className="button-secondary">
-          {lookupOpen ? "Hide lookup" : "Open lookup"}
-        </button>
-      </div>
-
-      {lookupOpen && (
-        <div className="mini-box" style={{ marginTop: 14 }}>
-          <div className="controls-row" style={{ alignItems: "flex-start" }}>
-            <input
-              ref={lookupInputRef}
-              value={lookupEnglish}
-              onChange={(e) => setLookupEnglish(e.target.value)}
-              onKeyDown={handleLookupKeyDown}
-              placeholder="Type English word or phrase..."
-              className="text-input"
-              style={{ width: "100%", maxWidth: 320 }}
-            />
-
-            <button
-              onClick={() => void lookupWord()}
-              disabled={lookupLoading || !lookupEnglish.trim()}
-              className={`button-primary ${
-                lookupLoading || !lookupEnglish.trim() ? "button-disabled" : ""
-              }`}
-            >
-              {lookupLoading ? "Looking up..." : "Look up"}
-            </button>
-          </div>
-
-          {lookupStatus && (
-            <div className="meta-text" style={{ marginTop: 10 }}>
-              {lookupStatus}
-            </div>
-          )}
-
-          {lookupResult && (
-            <div style={{ marginTop: 14 }}>
-              <p><b>Danish:</b> {lookupResult.corrected_phrase}</p>
-              <p><b>Explanation:</b> {lookupResult.short_explanation_da}</p>
-              <p><b>Example:</b> {lookupResult.example_da}</p>
-              <p><b>English:</b> {lookupResult.translation_en}</p>
-              <p><b>Example EN:</b> {lookupResult.example_en}</p>
-              <p><b>Extra info:</b> {lookupResult.extra_info || "—"}</p>
-
-              <div style={{ marginTop: 10 }}>
-                <button
-                  onClick={() => void saveLookupResultAsDraft()}
-                  disabled={savingLookupDraft}
-                  className={`button-secondary ${
-                    savingLookupDraft ? "button-disabled" : ""
-                  }`}
-                >
-                  {savingLookupDraft ? "Saving..." : "Create new draft"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-
     {practiceStage === "chat" && (
       <>
-        <div className="card" style={{ overflow: "visible", marginBottom: 24 }}>
+        <div className="card" style={{ overflow: "visible", marginBottom: 16 }}>
           <div className="controls-row-spread" style={{ marginBottom: 10 }}>
             <div>
               <h2 className="subsection-title" style={{ marginBottom: 4 }}>
                 Target phrases
               </h2>
               <div className="meta-text">
-                Keep these visible while chatting.
+                Click a phrase to insert it into your reply.
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                onClick={() => setShowEnglishInHover((prev) => !prev)}
-                className="button-secondary"
-              >
-                {showEnglishInHover ? "Hide English" : "Show English"}
-              </button>
-
-              <button
-                onClick={() => setTargetsOpen((prev) => !prev)}
-                className="button-secondary"
-              >
-                {targetsOpen ? "Hide targets" : "Show targets"}
-              </button>
-            </div>
+            <label
+              className="meta-text"
+              style={{ display: "flex", alignItems: "center", gap: 8 }}
+            >
+              <input
+                type="checkbox"
+                checked={showEnglishInHover}
+                onChange={(e) => setShowEnglishInHover(e.target.checked)}
+              />
+              show English on hover
+            </label>
           </div>
 
-          {targetsOpen && (
-            <>
-              {selectedCards.length === 0 ? (
-                <p>No saved phrases yet. Go back and add some first.</p>
-              ) : (
+          {selectedCards.length === 0 ? (
+            <p>No saved phrases yet. Go back and add some first.</p>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              {selectedCards.map((card) => (
                 <div
+                  key={card.id}
                   style={{
                     display: "flex",
-                    flexWrap: "wrap",
-                    gap: 8,
-                    marginBottom: 12,
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 8px",
+                    borderRadius: 999,
+                    background: usedPhraseIds.includes(card.id) ? "#dcfce7" : "#f3f4f6",
+                    fontSize: 13,
+                    cursor: "help",
+                    position: "relative",
                   }}
+                  onClick={() => {
+                    const phrase = card.phrase;
+                    const textarea = inputRef.current;
+                    if (!textarea) return;
+
+                    const start = textarea.selectionStart;
+                    const end = textarea.selectionEnd;
+                    const before = input.slice(0, start);
+                    const after = input.slice(end);
+
+                    const needsSpaceBefore = before && !before.endsWith(" ");
+                    const needsSpaceAfter = after && !after.startsWith(" ");
+
+                    const newValue =
+                      before +
+                      (needsSpaceBefore ? " " : "") +
+                      phrase +
+                      (needsSpaceAfter ? " " : "") +
+                      after;
+
+                    setInput(newValue);
+
+                    setTimeout(() => {
+                      const pos = (before + (needsSpaceBefore ? " " : "") + phrase).length;
+                      textarea.focus();
+                      textarea.setSelectionRange(pos, pos);
+                    }, 0);
+                  }}
+                  onMouseEnter={() => setHoveredPhraseId(card.id)}
+                  onMouseLeave={() =>
+                    setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
+                  }
                 >
-                  {selectedCards.map((card) => (
-                    <div
-                      key={card.id}
+                  <span>{getPhraseStatusSymbol(card.id)}</span>
+                  <span style={{ fontWeight: 500 }}>{card.phrase}</span>
+
+                  {helpUsedByPhraseId[card.id] && (
+                    <span
+                      className="badge"
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        padding: "4px 8px",
-                        borderRadius: 999,
-                        background: usedPhraseIds.includes(card.id)
-                          ? "#dcfce7"
-                          : "#f3f4f6",
-                        fontSize: 13,
-                        cursor: "help",
-                        position: "relative",
+                        backgroundColor: "#fef3c7",
+                        color: "#92400e",
+                        fontSize: 11,
+                        padding: "2px 6px",
                       }}
-                      onClick={() => {
-                        const phrase = card.phrase;
-                        const textarea = inputRef.current;
-                        if (!textarea) return;
-
-                        const start = textarea.selectionStart;
-                        const end = textarea.selectionEnd;
-                        const before = input.slice(0, start);
-                        const after = input.slice(end);
-
-                        const needsSpaceBefore = before && !before.endsWith(" ");
-                        const needsSpaceAfter = after && !after.startsWith(" ");
-
-                        const newValue =
-                          before +
-                          (needsSpaceBefore ? " " : "") +
-                          phrase +
-                          (needsSpaceAfter ? " " : "") +
-                          after;
-
-                        setInput(newValue);
-
-                        setTimeout(() => {
-                          const pos = (before + (needsSpaceBefore ? " " : "") + phrase).length;
-                          textarea.focus();
-                          textarea.setSelectionRange(pos, pos);
-                        }, 0);
-                      }}
-                      onMouseEnter={() => setHoveredPhraseId(card.id)}
-                      onMouseLeave={() =>
-                        setHoveredPhraseId((prev) => (prev === card.id ? null : prev))
-                      }
                     >
-                      <span>{getPhraseStatusSymbol(card.id)}</span>
+                      help
+                    </span>
+                  )}
 
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontWeight: 500 }}>{card.phrase}</span>
+                  {hoveredPhraseId === card.id && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "120%",
+                        left: 0,
+                        zIndex: 20,
+                        minWidth: 220,
+                        maxWidth: 300,
+                        background: "#fff",
+                        border: "1px solid #ddd",
+                        borderRadius: 10,
+                        padding: 10,
+                        boxShadow: "0 8px 20px rgba(0,0,0,0.12)",
+                      }}
+                    >
+                      <div style={{ fontWeight: 600 }}>{card.phrase}</div>
 
-                        {helpUsedByPhraseId[card.id] && (
-                          <span
-                            className="badge"
-                            style={{
-                              backgroundColor: "#fef3c7",
-                              color: "#92400e",
-                              fontSize: 11,
-                              padding: "2px 6px",
-                            }}
-                          >
-                            help
-                          </span>
-                        )}
-                      </div>
-
-                      {hoveredPhraseId === card.id && (
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "120%",
-                            left: 0,
-                            zIndex: 20,
-                            minWidth: 220,
-                            maxWidth: 300,
-                            background: "#fff",
-                            border: "1px solid #ddd",
-                            borderRadius: 10,
-                            padding: 10,
-                            boxShadow: "0 8px 20px rgba(0,0,0,0.12)",
-                          }}
-                        >
-                          <div style={{ fontWeight: 600 }}>{card.phrase}</div>
-
-                          {showEnglishInHover && (
-                            <div style={{ marginTop: 4, fontWeight: 500 }}>
-                              {card.translation_en}
-                            </div>
-                          )}
-
-                          <div style={{ marginTop: 4 }}>
-                            {card.short_explanation}
-                          </div>
+                      {showEnglishInHover && (
+                        <div style={{ marginTop: 4, fontWeight: 500 }}>
+                          {card.translation_en}
                         </div>
                       )}
-                    </div>
-                  ))}
-                </div>
-              )}
 
-              {selectedCards.length > 0 && (
-                <div className="badge badge-neutral">
-                  Progress: {usedPhraseIds.length} / {selectedCards.length} phrases used correctly
+                      <div style={{ marginTop: 4 }}>{card.short_explanation}</div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </>
+              ))}
+            </div>
+          )}
+
+          {selectedCards.length > 0 && (
+            <div className="badge badge-neutral">
+              Progress: {usedPhraseIds.length} / {selectedCards.length} phrases used correctly
+            </div>
           )}
         </div>
 
@@ -2386,40 +2240,86 @@ export default function PracticePage() {
               <div className="meta-text">
                 Source: {practiceSourceLabel} · Count: {practiceCount}
                 {practiceMode
-                  ? ` · Mode: ${
-                      practiceMode === "chat_only" ? "Chat only" : "Exercises + chat"
-                    }`
+                  ? ` · Mode: ${practiceMode === "chat_only" ? "Chat only" : "Exercises + chat"}`
                   : ""}
               </div>
             </div>
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            {!allPhrasesUsed && (
               <button
-                onClick={() => setSettingsOpen((prev) => !prev)}
-                className="button-secondary"
+                onClick={() => void startPractice()}
+                disabled={loading || selectedCards.length === 0}
+                className={`button-primary ${
+                  loading || selectedCards.length === 0 ? "button-disabled" : ""
+                }`}
               >
-                {settingsOpen ? "Hide settings" : "Show settings"}
+                {messages.length > 0 ? "Restart practice" : "Start practice"}
               </button>
-
-              {!allPhrasesUsed && (
-                <button
-                  onClick={() => void startPractice()}
-                  disabled={loading || selectedCards.length === 0}
-                  className={`button-primary ${
-                    loading || selectedCards.length === 0 ? "button-disabled" : ""
-                  }`}
-                >
-                  {loading
-                    ? "Starting..."
-                    : messages.length > 0
-                      ? "Restart practice"
-                      : "Start practice"}
-                </button>
-              )}
-            </div>
+            )}
           </div>
 
-          <div className="chat-box" style={{ marginBottom: 16 }}>
+          <div
+            className="mini-box"
+            style={{
+              marginBottom: 14,
+              display: "flex",
+              gap: 8,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <input
+              ref={lookupInputRef}
+              value={lookupEnglish}
+              onChange={(e) => setLookupEnglish(e.target.value)}
+              onKeyDown={handleLookupKeyDown}
+              placeholder="Quick lookup (EN to DA)..."
+              className="text-input"
+              style={{ flex: "1 1 220px", minWidth: 0 }}
+            />
+
+            <button
+              onClick={() => void lookupWord()}
+              disabled={lookupLoading || !lookupEnglish.trim()}
+              className={`button-secondary button-small ${
+                lookupLoading || !lookupEnglish.trim() ? "button-disabled" : ""
+              }`}
+            >
+              {lookupLoading ? "Looking..." : "Look up"}
+            </button>
+
+            {lookupStatus && <span className="meta-text">{lookupStatus}</span>}
+
+            {lookupResult && (
+              <div style={{ flexBasis: "100%", marginTop: 8 }}>
+                <div className="mini-box" style={{ margin: 0 }}>
+                  <p><b>Danish:</b> {lookupResult.corrected_phrase}</p>
+                  <p><b>Explanation:</b> {lookupResult.short_explanation_da}</p>
+                  <p><b>Example:</b> {lookupResult.example_da}</p>
+
+                  <button
+                    onClick={() => void saveLookupResultAsDraft()}
+                    disabled={savingLookupDraft}
+                    className={`button-secondary button-small ${
+                      savingLookupDraft ? "button-disabled" : ""
+                    }`}
+                  >
+                    {savingLookupDraft ? "Saving..." : "Create draft"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div
+            className="chat-box"
+            style={{
+              marginBottom: 16,
+              background: "#f8fafc",
+              borderRadius: 20,
+              padding: 16,
+            }}
+          >
             {messages.length === 0 ? (
               <p>No conversation yet.</p>
             ) : (
@@ -2430,29 +2330,61 @@ export default function PracticePage() {
                     .filter((m) => m.role === "assistant")
                     .slice(-1)[0]?.idx ?? -1;
 
+                const isAssistant = msg.role === "assistant";
+
                 return (
                   <div
                     key={i}
-                    className={`chat-message ${
-                      msg.role === "assistant" ? "chat-message-assistant" : "chat-message-user"
-                    }`}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      justifyContent: isAssistant ? "flex-start" : "flex-end",
+                      gap: 8,
+                      marginBottom: 10,
+                    }}
                   >
-                    <strong>{msg.role === "assistant" ? "Assistant" : "You"}:</strong>{" "}
-                    {msg.role === "user" && i === latestUserMessageIndex
-                      ? highlightDetectedText(msg.content, lastPhraseFeedback)
-                      : msg.content}
+                    {isAssistant && (
+                      <details style={{ position: "relative", marginTop: 18 }}>
+                        <summary
+                          className="button-secondary button-small"
+                          style={{
+                            display: "inline-flex",
+                            cursor: "pointer",
+                            width: 28,
+                            height: 28,
+                            minWidth: 28,
+                            padding: 0,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderRadius: 999,
+                            listStyle: "none",
+                          }}
+                        >
+                          ⋯
+                        </summary>
 
-                    {msg.role === "assistant" && (
-                      <div style={{ marginTop: 10 }}>
                         <div
                           className="utility-actions"
-                          style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
+                          style={{
+                            position: "absolute",
+                            top: 32,
+                            left: 0,
+                            zIndex: 30,
+                            display: "grid",
+                            gap: 6,
+                            minWidth: 150,
+                            padding: 8,
+                            borderRadius: 12,
+                            background: "#ffffff",
+                            border: "1px solid #e5e7eb",
+                            boxShadow: "0 12px 30px rgba(15, 23, 42, 0.14)",
+                          }}
                         >
                           <button
                             className="button-secondary button-small"
                             onClick={() => openAddPhraseFromMessage(i)}
                           >
-                            Create card draft
+                            create draft
                           </button>
 
                           <button
@@ -2461,10 +2393,10 @@ export default function PracticePage() {
                             disabled={translatingMessageIndex === i}
                           >
                             {translatingMessageIndex === i
-                              ? "Translating..."
+                              ? "translating..."
                               : showTranslationByMessage[i]
-                                ? "Hide translation"
-                                : "Translate message"}
+                                ? "hide translation"
+                                : "translate"}
                           </button>
 
                           {i === latestAssistantIndex && (
@@ -2475,67 +2407,90 @@ export default function PracticePage() {
                                 loading ? "button-disabled" : ""
                               }`}
                             >
-                              Regenerate answer
+                              regenerate
                             </button>
                           )}
                         </div>
-
-                        {showTranslationByMessage[i] && messageTranslations[i] && (
-                          <div className="mini-box" style={{ marginTop: 10 }}>
-                            <div className="meta-text" style={{ marginBottom: 6 }}>
-                              English translation
-                            </div>
-                            <div>{messageTranslations[i]}</div>
-                          </div>
-                        )}
-
-                        {addFromMessageIndex === i && (
-                          <div className="mini-box">
-                            <div className="meta-text" style={{ marginBottom: 8 }}>
-                              Select text in the message above, or type the phrase here.
-                            </div>
-
-                            <div className="controls-row">
-                              <input
-                                value={candidatePhrase}
-                                onChange={(e) => setCandidatePhrase(e.target.value)}
-                                onKeyDown={handleAddPhraseKeyDown}
-                                placeholder="Phrase to save as draft..."
-                                className="text-input"
-                                style={{ width: "100%", maxWidth: 300 }}
-                              />
-
-                              <button
-                                onClick={() => void savePhraseFromMessage()}
-                                disabled={addingPhrase}
-                                className={`button-primary ${
-                                  addingPhrase ? "button-disabled" : ""
-                                }`}
-                              >
-                                {addingPhrase ? "Creating..." : "Create draft"}
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  setAddFromMessageIndex(null);
-                                  setCandidatePhrase("");
-                                  setAddPhraseStatus(null);
-                                }}
-                                className="button-secondary"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-
-                            {addPhraseStatus && (
-                              <div className="meta-text" style={{ marginTop: 8 }}>
-                                {addPhraseStatus}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
+                      </details>
                     )}
+
+                    <div
+                      className={`chat-message ${
+                        isAssistant ? "chat-message-assistant" : "chat-message-user"
+                      }`}
+                      style={{
+                        maxWidth: "62%",
+                        marginLeft: isAssistant ? 0 : "auto",
+                        borderRadius: 18,
+                        padding: "10px 13px",
+                        background: isAssistant ? "#f5efe6" : "#ede9fe",
+                      }}
+                    >
+                      <div className="meta-text" style={{ marginBottom: 4 }}>
+                        {isAssistant ? "Assistant" : "You"}
+                      </div>
+
+                      <div>
+                        {msg.role === "user" && i === latestUserMessageIndex
+                          ? highlightDetectedText(msg.content, lastPhraseFeedback)
+                          : msg.content}
+                      </div>
+
+                      {isAssistant && showTranslationByMessage[i] && messageTranslations[i] && (
+                        <div className="mini-box" style={{ marginTop: 10 }}>
+                          <div className="meta-text" style={{ marginBottom: 6 }}>
+                            English translation
+                          </div>
+                          <div>{messageTranslations[i]}</div>
+                        </div>
+                      )}
+
+                      {isAssistant && addFromMessageIndex === i && (
+                        <div className="mini-box">
+                          <div className="meta-text" style={{ marginBottom: 8 }}>
+                            Select text in the message above, or type the phrase here.
+                          </div>
+
+                          <div className="controls-row">
+                            <input
+                              value={candidatePhrase}
+                              onChange={(e) => setCandidatePhrase(e.target.value)}
+                              onKeyDown={handleAddPhraseKeyDown}
+                              placeholder="Phrase to save as draft..."
+                              className="text-input"
+                              style={{ width: "100%", maxWidth: 300 }}
+                            />
+
+                            <button
+                              onClick={() => void savePhraseFromMessage()}
+                              disabled={addingPhrase}
+                              className={`button-primary ${
+                                addingPhrase ? "button-disabled" : ""
+                              }`}
+                            >
+                              {addingPhrase ? "Creating..." : "Create draft"}
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setAddFromMessageIndex(null);
+                                setCandidatePhrase("");
+                                setAddPhraseStatus(null);
+                              }}
+                              className="button-secondary"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+
+                          {addPhraseStatus && (
+                            <div className="meta-text" style={{ marginTop: 8 }}>
+                              {addPhraseStatus}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })
@@ -2573,14 +2528,7 @@ export default function PracticePage() {
                 />
 
                 <div className="composer-actions">
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 6,
-                      flexWrap: "wrap",
-                      alignItems: "center",
-                    }}
-                  >
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                     {messages.length > 0 && (
                       <button
                         onClick={endSession}
@@ -2704,26 +2652,39 @@ export default function PracticePage() {
 
         {feedbackOpen && (
           <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
-            {lastFeedbackSummary?.targetIssues?.length ? (
+            {lastPhraseFeedback.some((item) => item.status !== "unused") ? (
               <div className="mini-box" style={{ margin: 0 }}>
                 <strong>Target phrase feedback</strong>
 
                 <ul style={{ marginTop: 10, marginBottom: 0 }}>
-                  {lastFeedbackSummary.targetIssues.map((item) => (
-                    <li key={item.phraseId} style={{ marginBottom: 10 }}>
-                      {item.status === "correct" && "✓"}
-                      {item.status === "almost" && "~"}
-                      {item.status === "wrong" && "✗"}{" "}
-                      <strong>{item.phrase}</strong>
-                      {item.issue ? ` — ${item.issue}` : ""}
+                  {lastPhraseFeedback
+                    .filter((item) => item.status !== "unused")
+                    .map((item) => {
+                      const issueFromSummary = lastFeedbackSummary?.targetIssues?.find(
+                        (issue) => issue.phraseId === item.phraseId
+                      );
 
-                      {item.suggestion && (
-                        <div style={{ marginTop: 4 }}>
-                          <em>Suggestion:</em> {item.suggestion}
-                        </div>
-                      )}
-                    </li>
-                  ))}
+                      return (
+                        <li key={item.phraseId} style={{ marginBottom: 10 }}>
+                          {item.status === "correct" && "✓"}
+                          {item.status === "almost" && "~"}
+                          {item.status === "wrong" && "✗"}{" "}
+                          <strong>{item.phrase}</strong>
+                          {issueFromSummary?.issue
+                            ? ` — ${issueFromSummary.issue}`
+                            : item.comment
+                              ? ` — ${item.comment}`
+                              : ""}
+
+                          {(issueFromSummary?.suggestion || item.suggestion) && (
+                            <div style={{ marginTop: 4 }}>
+                              <em>Suggestion:</em>{" "}
+                              {issueFromSummary?.suggestion || item.suggestion}
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
                 </ul>
               </div>
             ) : null}
@@ -2791,9 +2752,7 @@ export default function PracticePage() {
                     <div className="controls-row">
                       <input
                         value={candidateFeedbackPhrase}
-                        onChange={(e) =>
-                          setCandidateFeedbackPhrase(e.target.value)
-                        }
+                        onChange={(e) => setCandidateFeedbackPhrase(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
                             e.preventDefault();
@@ -2838,22 +2797,6 @@ export default function PracticePage() {
                 )}
               </div>
             ) : null}
-
-            {!lastFeedbackSummary &&
-              lastPhraseFeedback
-                .filter((item) => item.status !== "unused")
-                .map((item) => (
-                  <div key={item.phraseId} className="mini-box" style={{ margin: 0 }}>
-                    <strong>{item.phrase}</strong>
-                    {item.comment ? ` — ${item.comment}` : ""}
-
-                    {item.suggestion && (
-                      <div style={{ marginTop: 4 }}>
-                        <em>Suggestion:</em> {item.suggestion}
-                      </div>
-                    )}
-                  </div>
-                ))}
           </div>
         )}
       </div>
