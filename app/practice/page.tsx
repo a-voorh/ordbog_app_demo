@@ -2240,7 +2240,7 @@ const formatMeaningText = (text: string) => {
               <div className="meta-text">
                 Source: {practiceSourceLabel} · Count: {practiceCount}
                 {practiceMode
-                  ? ` · Mode: ${practiceMode === "chat_only" ? "Chat only" : "Exercises + chat"}`
+                  ? ` · Mode: ${practiceMode === "chat_only" ? "Chat only" : "Warm-up + chat"}`
                   : ""}
               </div>
             </div>

@@ -1,13 +1,9 @@
 "use client";
 
-import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../lib/supabase";
 import { TABLES } from "../lib/tables";
-
-// Introducing the phrase card format: we remember the phrase itself, 
-// its id in the database, translation to EN, explanation in DA, 
-// example in DA and its translation to EN, extra info and stats about usage attempts.
 
 type PhraseCard = {
   id: string;
@@ -33,14 +29,11 @@ type PhraseCard = {
   times_re_requested?: number | null;
   last_requested_again_at?: string | null;
   learning_attempted?: number | null;
-learning_correct?: number | null;
-learning_almost?: number | null;
-learning_wrong?: number | null;
-last_learning_at?: string | null;
+  learning_correct?: number | null;
+  learning_almost?: number | null;
+  learning_wrong?: number | null;
+  last_learning_at?: string | null;
 };
-
-// Before saving the card into database, we deal with the drafts. This type is the pending draft, 
-// that means that the user wants to save the phrase, but don't have time to look at it at the moment. 
 
 type PendingDraft = {
   id: string;
@@ -56,9 +49,6 @@ type PendingDraft = {
   source: string;
 };
 
-// This is the type we need when we ask the app to analyze the phrase. 
-// We do not assume that the user will necessarily want to save the phrase they looked up. 
-
 type AnalysisResult = {
   corrected_phrase: string;
   translation_en: string;
@@ -68,25 +58,10 @@ type AnalysisResult = {
   extra_info: string;
 };
 
-// This one is for looking up the phrase in English first. 
-
-type LookupResult = {
-  corrected_phrase: string;
-  translation_en: string;
-  short_explanation_da: string;
-  example_da: string;
-  example_en: string;
-  extra_info: string;
-};
-
-// User gave us a phrase, and we prepare a list of possible meanings they might be interested in. 
-
 type MeaningDetectionResult = {
   phrase: string;
   options: MeaningOption[];
 };
-
-// User needs to choose the meaning he wants to save the phrase under.
 
 type PendingMeaningChoice = {
   source: "draft" | "pending";
@@ -94,15 +69,11 @@ type PendingMeaningChoice = {
   normalizedTags: string[];
 };
 
-// Each option is encoded by its meaning, its explanation in Danish and an example.
-
 type MeaningOption = {
   translation_en: string;
   short_explanation_da: string;
   example_da: string;
 };
-
-// The temporary inline edit version of the text fields of a word card. 
 
 type EditDraft = {
   phrase: string;
@@ -112,9 +83,6 @@ type EditDraft = {
   example_en: string;
   extra_info: string;
 };
-
-// A draft card currently shown in the UI (before saving to database).
-// This is what the user reviews and edits.
 
 type DraftCard = {
   phrase: string;
@@ -126,23 +94,14 @@ type DraftCard = {
   tags: string[];
 };
 
-// One alternative way the phrase can appear in real usage.
-// Used to generate more varied examples.
-
 type GeneratedUsageVariant = {
   variant_da: string;
   variant_tag?: string | null;
 };
 
-// The database is big, so we don't necessarily want to show it all, instead, by default, we show the user the top 10 phrases requiring attention.
-// Maybe I could add other categories here... 
 type DatabaseViewMode = "attention" | "all";
-
-// Tells whether we are updating a saved phrase or a draft.
-
 type RefreshEntityType = "phrase" | "draft";
 
-// Sometimes the user wants to refresh specific lines of the phrase card using AI (thus not typing them manually) while keeping the rest of the card intact.
 type RefreshField =
   | "translation_en"
   | "short_explanation"
@@ -150,7 +109,6 @@ type RefreshField =
   | "example_da"
   | "example_en";
 
- // What kind of improvement we want for that field.
 type RefreshAction =
   | "generate_meaning_candidates"
   | "set_meaning"
@@ -162,12 +120,7 @@ type RefreshAction =
   | "more_natural"
   | "retranslate_from_danish";
 
-
-// Something that can be updated via the refresh system (either a phrase or a draft).
 type RefreshableItem = PhraseCard | PendingDraft;
-
-// State of the "choose meaning" modal.
-// Either closed, or open with data about the current item and options.
 
 type RefreshMeaningPickerState =
   | { open: false }
@@ -178,8 +131,6 @@ type RefreshMeaningPickerState =
       candidates: string[];
     };
 
-
-// Returns styles that make a button look busy/pressed while loading.
 const refreshButtonStyle = (isLoading: boolean) =>
   ({
     opacity: isLoading ? 0.6 : 1,
@@ -188,21 +139,14 @@ const refreshButtonStyle = (isLoading: boolean) =>
     transition: "all 0.15s ease",
   }) as const;
 
-
-
-// Normalizes text for consistent storage and comparison
 const normalizeText = (value: string) =>
   value.trim().toLowerCase().replace(/\s+/g, " ");
 
-// Normalizing tags, phrases and english translations
 const normalizeTag = normalizeText;
 const normalizePhraseKey = normalizeText;
 const normalizeMeaningKey = (value?: string | null) =>
   normalizeText(value || "");
 
-// Avoid duplicates: we can save the same phrase many times, but only under different meanings. 
-// Example: knap (button) and knap (hardly, barely)
-// When comparing contents of the cards, all strings get normalized
 const isSamePhraseMeaning = (
   a: { phrase: string; translation_en?: string | null },
   b: { phrase: string; translation_en?: string | null }
@@ -210,10 +154,7 @@ const isSamePhraseMeaning = (
   normalizePhraseKey(a.phrase) === normalizePhraseKey(b.phrase) &&
   normalizeMeaningKey(a.translation_en) === normalizeMeaningKey(b.translation_en);
 
-// Ignore "at" when sorting the phrases
 const sortKeyDa = (phrase: string) => phrase.trim().replace(/^at\s+/i, "");
-
-// Sort alphabetically by Danish phrase, if phrases are equal, sort by English meaning. 
 
 const sortByPhraseDa = <T extends { phrase: string; translation_en?: string }>(
   items: T[]
@@ -223,21 +164,21 @@ const sortByPhraseDa = <T extends { phrase: string; translation_en?: string }>(
       sortKeyDa(b.phrase),
       "da"
     );
+
     if (phraseCompare !== 0) return phraseCompare;
+
     return (a.translation_en || "").localeCompare(b.translation_en || "", "en");
   });
 
-// Generates a stable numeric hash from a string (used for consistent mapping, e.g. colors)
-
 function hashString(value: string) {
   let hash = 0;
-  for (let i = 0; i < value.length; i++) {
+
+  for (let i = 0; i < value.length; i += 1) {
     hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
   }
+
   return hash;
 }
-
-// Predefined color styles for tags (used with hashing to assign consistent colors)
 
 const TAG_PALETTE = [
   { bg: "#dbeafe", text: "#1d4ed8", border: "#93c5fd" },
@@ -262,10 +203,9 @@ const TAG_PALETTE = [
   { bg: "#ecfeff", text: "#0f766e", border: "#5eead4" },
 ];
 
-// Returns a consistent color style for a tag based on its hash
-
 function tagPillStyle(tag: string) {
   const colors = TAG_PALETTE[hashString(tag.toLowerCase()) % TAG_PALETTE.length];
+
   return {
     backgroundColor: colors.bg,
     color: colors.text,
@@ -281,11 +221,13 @@ export default function Home() {
   const [draftCard, setDraftCard] = useState<DraftCard | null>(null);
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [expandedPendingDraftId, setExpandedPendingDraftId] = useState<string | null>(null);
+  const [expandedPendingDraftId, setExpandedPendingDraftId] =
+    useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
-  const [savingPhraseToPendingDraft, setSavingPhraseToPendingDraft] = useState(false);
+  const [savingPhraseToPendingDraft, setSavingPhraseToPendingDraft] =
+    useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
@@ -293,26 +235,40 @@ export default function Home() {
   const [isEditingDraft, setIsEditingDraft] = useState(false);
   const [draftEdit, setDraftEdit] = useState<EditDraft | null>(null);
 
-  const [editingPendingDraftId, setEditingPendingDraftId] = useState<string | null>(null);
-  const [pendingDraftEdit, setPendingDraftEdit] = useState<EditDraft | null>(null);
+  const [editingPendingDraftId, setEditingPendingDraftId] =
+    useState<string | null>(null);
+  const [pendingDraftEdit, setPendingDraftEdit] = useState<EditDraft | null>(
+    null
+  );
 
   const [selectedForPractice, setSelectedForPractice] = useState<string[]>([]);
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [newTagInput, setNewTagInput] = useState("");
   const [extraTags, setExtraTags] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
 
-  const [inlineTagInputByCard, setInlineTagInputByCard] = useState<Record<string, string>>({});
-  const [inlineTagInputByPendingDraft, setInlineTagInputByPendingDraft] = useState<Record<string, string>>({});
+  const [inlineTagInputByCard, setInlineTagInputByCard] = useState<
+    Record<string, string>
+  >({});
+  const [inlineTagInputByPendingDraft, setInlineTagInputByPendingDraft] =
+    useState<Record<string, string>>({});
 
-  const [showStatsByCard, setShowStatsByCard] = useState<Record<string, boolean>>({});
-  const [showAllTagsByCard, setShowAllTagsByCard] = useState<Record<string, boolean>>({});
-  const [showAllTagsByPendingDraft, setShowAllTagsByPendingDraft] = useState<Record<string, boolean>>({});
+  const [showStatsByCard, setShowStatsByCard] = useState<
+    Record<string, boolean>
+  >({});
+  const [showAllTagsByCard, setShowAllTagsByCard] = useState<
+    Record<string, boolean>
+  >({});
+  const [showAllTagsByPendingDraft, setShowAllTagsByPendingDraft] = useState<
+    Record<string, boolean>
+  >({});
 
-  const [showAllNewPhraseTags, setShowAllNewPhraseTags] = useState(false);
   const [showAllFilterTags, setShowAllFilterTags] = useState(false);
-  const [showAllInlinePickerByCard, setShowAllInlinePickerByCard] = useState<Record<string, boolean>>({});
-  const [showAllInlinePickerByPendingDraft, setShowAllInlinePickerByPendingDraft] = useState<Record<string, boolean>>({});
+  const [showAllInlinePickerByCard, setShowAllInlinePickerByCard] = useState<
+    Record<string, boolean>
+  >({});
+  const [
+    showAllInlinePickerByPendingDraft,
+    setShowAllInlinePickerByPendingDraft,
+  ] = useState<Record<string, boolean>>({});
 
   const [renameFrom, setRenameFrom] = useState("");
   const [renameTo, setRenameTo] = useState("");
@@ -321,37 +277,33 @@ export default function Home() {
   const [draftTagInput, setDraftTagInput] = useState("");
   const [showAllDraftTags, setShowAllDraftTags] = useState(false);
 
-  const [databaseViewMode, setDatabaseViewMode] = useState<DatabaseViewMode>("attention");
+  const [databaseViewMode, setDatabaseViewMode] =
+    useState<DatabaseViewMode>("attention");
 
-  const [lookupOpen, setLookupOpen] = useState(false);
-  const [lookupEnglish, setLookupEnglish] = useState("");
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupResult, setLookupResult] = useState<LookupResult | null>(null);
-  const [lookupStatus, setLookupStatus] = useState<string | null>(null);
-  const [savingLookupDraft, setSavingLookupDraft] = useState(false);
-
-  const [newPhraseToolsOpen, setNewPhraseToolsOpen] = useState(false);
   const [libraryFiltersOpen, setLibraryFiltersOpen] = useState(false);
 
   const [meaningPickerOpen, setMeaningPickerOpen] = useState(false);
   const [meaningPickerLoading, setMeaningPickerLoading] = useState(false);
-  const [meaningPickerError, setMeaningPickerError] = useState<string | null>(null);
+  const [meaningPickerError, setMeaningPickerError] = useState<string | null>(
+    null
+  );
   const [meaningOptions, setMeaningOptions] = useState<MeaningOption[]>([]);
-  const [pendingMeaningChoice, setPendingMeaningChoice] = useState<PendingMeaningChoice | null>(null);
+  const [pendingMeaningChoice, setPendingMeaningChoice] =
+    useState<PendingMeaningChoice | null>(null);
+  const [selectedMeaningOptionIndexes, setSelectedMeaningOptionIndexes] =
+    useState<number[]>([]);
 
-const [refreshMeaningPicker, setRefreshMeaningPicker] =
-  useState<RefreshMeaningPickerState>({ open: false });
+  const [refreshMeaningPicker, setRefreshMeaningPicker] =
+    useState<RefreshMeaningPickerState>({ open: false });
 
   const [refreshingKey, setRefreshingKey] = useState<string | null>(null);
 
-  const lookupInputRef = useRef<HTMLInputElement | null>(null);
-
-  const refreshBtnClass =
-    "ml-2 rounded border px-2 py-0.5 text-xs hover:bg-neutral-100";
-
   useEffect(() => {
     const load = async () => {
-      const { data: phraseData } = await supabase.from(TABLES.phrases).select("*");
+      const { data: phraseData } = await supabase
+        .from(TABLES.phrases)
+        .select("*");
+
       setCards(sortByPhraseDa((phraseData || []) as PhraseCard[]));
 
       const { data: draftData } = await supabase
@@ -367,22 +319,15 @@ const [refreshMeaningPicker, setRefreshMeaningPicker] =
 
   useEffect(() => {
     const stored = localStorage.getItem("selected_phrase_ids");
+
     if (stored) {
       try {
         setSelectedForPractice(JSON.parse(stored));
       } catch {
-        // ignore invalid localStorage
+        // Ignore invalid localStorage.
       }
     }
   }, []);
-
-  useEffect(() => {
-    if (lookupOpen) {
-      setTimeout(() => {
-        lookupInputRef.current?.focus();
-      }, 0);
-    }
-  }, [lookupOpen]);
 
   const allTags = useMemo(() => {
     const tags = new Set<string>();
@@ -419,19 +364,14 @@ const [refreshMeaningPicker, setRefreshMeaningPicker] =
     card.times_spontaneous_wrong ?? 0;
   const retryCorrectOf = (card: PhraseCard) => card.times_retry_correct ?? 0;
   const reRequestedOf = (card: PhraseCard) => card.times_re_requested ?? 0;
-const learningAttemptedOf = (card: PhraseCard) =>
-  card.learning_attempted ?? 0;
 
-const learningCorrectOf = (card: PhraseCard) =>
-  card.learning_correct ?? 0;
+  const learningCorrectOf = (card: PhraseCard) => card.learning_correct ?? 0;
+  const learningAlmostOf = (card: PhraseCard) => card.learning_almost ?? 0;
+  const learningWrongOf = (card: PhraseCard) => card.learning_wrong ?? 0;
 
-const learningAlmostOf = (card: PhraseCard) =>
-  card.learning_almost ?? 0;
-
-const learningWrongOf = (card: PhraseCard) =>
-  card.learning_wrong ?? 0;
   const daysSinceIso = (iso?: string | null) => {
     if (!iso) return null;
+
     const diffMs = Date.now() - new Date(iso).getTime();
     return diffMs / (1000 * 60 * 60 * 24);
   };
@@ -439,50 +379,48 @@ const learningWrongOf = (card: PhraseCard) =>
   const daysSinceLastPracticed = (card: PhraseCard) =>
     daysSinceIso(card.last_practiced_at);
 
- const masteryPoints = (card: PhraseCard) => {
-  const promptedCorrect = correctOf(card) * 2;
-  const promptedAlmost = almostOf(card) * 1.2;
-  const promptedWrong = wrongOf(card) * -0.8;
+  const masteryPoints = (card: PhraseCard) => {
+    const promptedCorrect = correctOf(card) * 2;
+    const promptedAlmost = almostOf(card) * 1.2;
+    const promptedWrong = wrongOf(card) * -0.8;
 
-  const spontaneousCorrect = spontaneousCorrectOf(card) * 3;
-  const spontaneousAlmost = spontaneousAlmostOf(card) * 1.7;
-  const spontaneousWrong = spontaneousWrongOf(card) * -0.5;
+    const spontaneousCorrect = spontaneousCorrectOf(card) * 3;
+    const spontaneousAlmost = spontaneousAlmostOf(card) * 1.7;
+    const spontaneousWrong = spontaneousWrongOf(card) * -0.5;
 
-  const retryCorrect = retryCorrectOf(card) * 0.7;
+    const retryCorrect = retryCorrectOf(card) * 0.7;
 
-  // Learning mode counts, but weaker than real chat/practice usage
-  const learningCorrect = learningCorrectOf(card) * 0.5;
-  const learningAlmost = learningAlmostOf(card) * 0.25;
-  const learningWrong = learningWrongOf(card) * -0.3;
+    const learningCorrect = learningCorrectOf(card) * 0.5;
+    const learningAlmost = learningAlmostOf(card) * 0.25;
+    const learningWrong = learningWrongOf(card) * -0.3;
 
-  const total =
-    promptedCorrect +
-    promptedAlmost +
-    promptedWrong +
-    spontaneousCorrect +
-    spontaneousAlmost +
-    spontaneousWrong +
-    retryCorrect +
-    learningCorrect +
-    learningAlmost +
-    learningWrong;
+    const total =
+      promptedCorrect +
+      promptedAlmost +
+      promptedWrong +
+      spontaneousCorrect +
+      spontaneousAlmost +
+      spontaneousWrong +
+      retryCorrect +
+      learningCorrect +
+      learningAlmost +
+      learningWrong;
 
-  return Math.max(0, total);
-};
+    return Math.max(0, total);
+  };
 
-const masteryLabel = (card: PhraseCard) => {
-  const points = masteryPoints(card);
-  const spontaneousCorrect = spontaneousCorrectOf(card);
+  const masteryLabel = (card: PhraseCard) => {
+    const points = masteryPoints(card);
+    const spontaneousCorrect = spontaneousCorrectOf(card);
 
-  // IMPORTANT: check automatic first
-  if (spontaneousCorrect >= 2 && points >= 6) return "automatic";
-  if (spontaneousCorrect >= 1 && points >= 4) return "active";
+    if (spontaneousCorrect >= 2 && points >= 6) return "automatic";
+    if (spontaneousCorrect >= 1 && points >= 4) return "active";
 
-  if (points < 2) return "new";
-  if (points < 4) return "familiar";
+    if (points < 2) return "new";
+    if (points < 4) return "familiar";
 
-  return "active";
-};
+    return "active";
+  };
 
   const masteryColor = (card: PhraseCard) => {
     const label = masteryLabel(card);
@@ -490,6 +428,7 @@ const masteryLabel = (card: PhraseCard) => {
     if (label === "new") return "#e5e7eb";
     if (label === "familiar") return "#dbeafe";
     if (label === "active") return "#dcfce7";
+
     return "#fef3c7";
   };
 
@@ -501,15 +440,18 @@ const masteryLabel = (card: PhraseCard) => {
     if (label === "new") return "#374151";
     if (label === "familiar") return "#1d4ed8";
     if (label === "active") return "#166534";
+
     return "#92400e";
   };
 
   const staleLabel = (card: PhraseCard) => {
     const days = daysSinceLastPracticed(card);
+
     if (days === null) return "";
     if (days > 30) return "stale";
     if (days > 14) return "needs review";
     if (days > 7) return "review soon";
+
     return "";
   };
 
@@ -536,36 +478,41 @@ const masteryLabel = (card: PhraseCard) => {
 
   const filteredCards = useMemo(() => {
     const q = search.trim().toLowerCase();
-
     let result = databaseViewMode === "attention" ? attentionCards : cards;
 
     if (tagFilter) {
-      result = result.filter((c) => (c.tags || []).includes(tagFilter));
+      result = result.filter((card) => (card.tags || []).includes(tagFilter));
     }
 
     if (!q) return result;
 
     return result.filter(
-      (c) =>
-        c.phrase.toLowerCase().includes(q) ||
-        c.translation_en.toLowerCase().includes(q) ||
-        c.short_explanation.toLowerCase().includes(q) ||
-        c.example_da.toLowerCase().includes(q) ||
-        c.example_en.toLowerCase().includes(q) ||
-        (c.tags || []).some((tag) => tag.toLowerCase().includes(q))
+      (card) =>
+        card.phrase.toLowerCase().includes(q) ||
+        card.translation_en.toLowerCase().includes(q) ||
+        card.short_explanation.toLowerCase().includes(q) ||
+        card.example_da.toLowerCase().includes(q) ||
+        card.example_en.toLowerCase().includes(q) ||
+        (card.tags || []).some((tag) => tag.toLowerCase().includes(q))
     );
   }, [cards, attentionCards, databaseViewMode, search, tagFilter]);
 
   const totalSaved = cards.length;
 
   const activeVocabularyCount = cards.filter(
-    (card) => masteryLabel(card) === "active" || masteryLabel(card) === "automatic"
+    (card) =>
+      masteryLabel(card) === "active" || masteryLabel(card) === "automatic"
   ).length;
 
   const needsReviewCount = cards.filter((card) => {
     const label = masteryLabel(card);
     const days = daysSinceLastPracticed(card);
-    return label === "new" || label === "familiar" || (days !== null && days > 14);
+
+    return (
+      label === "new" ||
+      label === "familiar" ||
+      (days !== null && days > 14)
+    );
   }).length;
 
   const hasSamePhraseMeaningInCards = (
@@ -613,6 +560,7 @@ const masteryLabel = (card: PhraseCard) => {
     if (entityType === "phrase") {
       return cards.find((card) => card.id === id) ?? null;
     }
+
     return pendingDrafts.find((draft) => draft.id === id) ?? null;
   };
 
@@ -641,7 +589,7 @@ const masteryLabel = (card: PhraseCard) => {
   };
 
   const closeRefreshMeaningPicker = () => {
-   setRefreshMeaningPicker({ open: false });
+    setRefreshMeaningPicker({ open: false });
   };
 
   const maybeRefreshUsageVariantsAfterFieldRefresh = async (
@@ -737,6 +685,7 @@ const masteryLabel = (card: PhraseCard) => {
   ) => {
     try {
       const item = findRefreshItemById(entityType, itemId);
+
       if (!item) {
         alert("Could not find the item to update.");
         return;
@@ -750,21 +699,17 @@ const masteryLabel = (card: PhraseCard) => {
         selectedMeaning,
       });
 
-     const pickerCandidates = refreshMeaningPicker.open
-  ? refreshMeaningPicker.candidates
-  : [];
+      const pickerCandidates = refreshMeaningPicker.open
+        ? refreshMeaningPicker.candidates
+        : [];
 
-const updatedMeaningList = Array.from(
-  new Set(
-    [
-      ...(item.meanings ?? []),
-      ...pickerCandidates,
-      selectedMeaning,
-    ]
-      .map((x) => x.trim())
-      .filter(Boolean)
-  )
-);
+      const updatedMeaningList = Array.from(
+        new Set(
+          [...(item.meanings ?? []), ...pickerCandidates, selectedMeaning]
+            .map((x) => x.trim())
+            .filter(Boolean)
+        )
+      );
 
       const updatedFields: Partial<RefreshableItem> = {
         ...(json.updatedFields || {}),
@@ -772,11 +717,13 @@ const updatedMeaningList = Array.from(
       };
 
       applyUpdatedFieldsLocally(entityType, itemId, updatedFields);
+
       await maybeRefreshUsageVariantsAfterFieldRefresh(
         entityType,
         itemId,
         updatedFields
       );
+
       closeRefreshMeaningPicker();
     } catch (error) {
       console.error(error);
@@ -800,7 +747,9 @@ const updatedMeaningList = Array.from(
       });
 
       const updatedFields = (json.updatedFields || {}) as Partial<RefreshableItem>;
+
       applyUpdatedFieldsLocally(entityType, item.id, updatedFields);
+
       await maybeRefreshUsageVariantsAfterFieldRefresh(
         entityType,
         item.id,
@@ -827,7 +776,9 @@ const updatedMeaningList = Array.from(
       });
 
       const updatedFields = (json.updatedFields || {}) as Partial<RefreshableItem>;
+
       applyUpdatedFieldsLocally(entityType, item.id, updatedFields);
+
       await maybeRefreshUsageVariantsAfterFieldRefresh(
         entityType,
         item.id,
@@ -855,7 +806,9 @@ const updatedMeaningList = Array.from(
       });
 
       const updatedFields = (json.updatedFields || {}) as Partial<RefreshableItem>;
+
       applyUpdatedFieldsLocally(entityType, item.id, updatedFields);
+
       await maybeRefreshUsageVariantsAfterFieldRefresh(
         entityType,
         item.id,
@@ -880,7 +833,9 @@ const updatedMeaningList = Array.from(
       });
 
       const updatedFields = (json.updatedFields || {}) as Partial<RefreshableItem>;
+
       applyUpdatedFieldsLocally(entityType, item.id, updatedFields);
+
       await maybeRefreshUsageVariantsAfterFieldRefresh(
         entityType,
         item.id,
@@ -902,6 +857,15 @@ const updatedMeaningList = Array.from(
     setMeaningPickerError(null);
     setMeaningOptions([]);
     setPendingMeaningChoice(null);
+    setSelectedMeaningOptionIndexes([]);
+  };
+
+  const toggleMeaningOptionIndex = (index: number) => {
+    setSelectedMeaningOptionIndexes((prev) =>
+      prev.includes(index)
+        ? prev.filter((item) => item !== index)
+        : [...prev, index]
+    );
   };
 
   const generateUsageVariants = async (input: {
@@ -938,13 +902,11 @@ const updatedMeaningList = Array.from(
           }))
           .filter((item) => item.variant_da);
 
-        const deduped = Array.from(
+        return Array.from(
           new Map(
             cleaned.map((item) => [normalizePhraseKey(item.variant_da), item])
           ).values()
         );
-
-        return deduped;
       } catch (err) {
         console.error("Invalid JSON from usage variant route:", data?.result, err);
         return [] as GeneratedUsageVariant[];
@@ -978,9 +940,7 @@ const updatedMeaningList = Array.from(
       return;
     }
 
-    if (generatedVariants.length === 0) {
-      return;
-    }
+    if (generatedVariants.length === 0) return;
 
     const rows = generatedVariants.map((variant) => ({
       phrase_id: phraseId,
@@ -1007,8 +967,8 @@ const updatedMeaningList = Array.from(
     const existingCard = cards.find((card) => {
       const samePhrase =
         normalizePhraseKey(card.phrase) === normalizePhraseKey(phraseKey);
-      if (!samePhrase) return false;
 
+      if (!samePhrase) return false;
       if (!translationEn) return true;
 
       return (
@@ -1072,6 +1032,7 @@ const updatedMeaningList = Array.from(
     });
 
     const data = await res.json();
+
     if (!res.ok) return null;
 
     return data as MeaningDetectionResult;
@@ -1090,115 +1051,13 @@ const updatedMeaningList = Array.from(
     });
 
     const data = await res.json();
+
     if (!res.ok) return null;
 
     try {
       return JSON.parse(data.result) as AnalysisResult;
     } catch {
       return null;
-    }
-  };
-
-  const lookupWord = async () => {
-    const english = lookupEnglish.trim();
-    if (!english) return;
-
-    setLookupLoading(true);
-    setLookupStatus(null);
-    setLookupResult(null);
-
-    try {
-      const res = await fetch("/api/lookup-word", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ english }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        console.error("Lookup backend error:", data);
-        setLookupStatus("Could not look that up.");
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(data.result) as LookupResult;
-        setLookupResult(parsed);
-      } catch {
-        console.error("Invalid JSON from lookup route:", data.result);
-        setLookupStatus("Lookup returned invalid data.");
-      }
-    } catch (err) {
-      console.error("Failed to look up word:", err);
-      setLookupStatus("Could not look that up.");
-    } finally {
-      setLookupLoading(false);
-    }
-  };
-
-  const saveLookupResultAsPendingDraft = async () => {
-    if (!lookupResult) return;
-
-    setSavingLookupDraft(true);
-    setLookupStatus(null);
-
-    try {
-      const correctedPhrase = lookupResult.corrected_phrase.trim();
-      const translationEn = lookupResult.translation_en;
-
-      const duplicateInCards = hasSamePhraseMeaningInCards(
-        correctedPhrase,
-        translationEn
-      );
-
-      if (duplicateInCards) {
-        await bumpRequestedAgain(correctedPhrase, translationEn);
-        setLookupStatus(`Already in database: ${correctedPhrase} (${translationEn})`);
-        return;
-      }
-
-      const duplicateInPendingDrafts = hasSamePhraseMeaningInPendingDrafts(
-        correctedPhrase,
-        translationEn
-      );
-
-      if (duplicateInPendingDrafts) {
-        setLookupStatus(`Already waiting in drafts: ${correctedPhrase} (${translationEn})`);
-        return;
-      }
-
-      const newDraft: PendingDraft = {
-        id: crypto.randomUUID(),
-        phrase: correctedPhrase,
-        translation_en: lookupResult.translation_en,
-        short_explanation: lookupResult.short_explanation_da,
-        example_da: lookupResult.example_da,
-        example_en: lookupResult.example_en,
-        extra_info: lookupResult.extra_info,
-        tags: [],
-        meanings: [lookupResult.translation_en],
-        created_at: new Date().toISOString(),
-        source: "lookup",
-      };
-
-      const { error } = await supabase.from(TABLES.drafts).insert(newDraft);
-
-      if (error) {
-        console.error("Failed to save lookup draft:", error);
-        setLookupStatus("Failed to save draft.");
-        return;
-      }
-
-      setPendingDrafts((prev) => sortByPhraseDa([newDraft, ...prev]));
-      setLookupStatus(`Draft created: ${correctedPhrase}`);
-    } catch (err) {
-      console.error("Failed to save lookup draft:", err);
-      setLookupStatus("Something went wrong.");
-    } finally {
-      setSavingLookupDraft(false);
     }
   };
 
@@ -1232,6 +1091,7 @@ const updatedMeaningList = Array.from(
       correctedPhrase,
       translationEn
     );
+
     const duplicateInPendingDrafts = hasSamePhraseMeaningInPendingDrafts(
       correctedPhrase,
       translationEn
@@ -1243,7 +1103,7 @@ const updatedMeaningList = Array.from(
       }
 
       alert(`This phrase already exists: ${correctedPhrase} (${translationEn})`);
-      return;
+      return false;
     }
 
     const newDraft: PendingDraft = {
@@ -1264,44 +1124,33 @@ const updatedMeaningList = Array.from(
 
     if (error) {
       alert("Could not save draft.");
-      return;
+      return false;
     }
 
     setPendingDrafts((prev) => sortByPhraseDa([newDraft, ...prev]));
     setPhrase("");
+
+    return true;
   };
 
-  const beginMeaningChoiceFlow = async (
+   const beginMeaningChoiceFlow = async (
     rawPhrase: string,
     source: "draft" | "pending",
     normalizedTags: string[]
   ) => {
     setMeaningPickerLoading(true);
     setMeaningPickerError(null);
+    setSelectedMeaningOptionIndexes([]);
 
     try {
       const detected = await detectPhraseMeanings(rawPhrase);
 
-      if (!detected || !Array.isArray(detected.options) || detected.options.length === 0) {
+      if (
+        !detected ||
+        !Array.isArray(detected.options) ||
+        detected.options.length === 0
+      ) {
         const parsed = await analyzePhrase(rawPhrase);
-
-        if (!parsed) {
-          alert("Could not analyze this phrase.");
-          return;
-        }
-
-        if (source === "draft") {
-          createDraftCardFromAnalysis(parsed, normalizedTags);
-        } else {
-          await createPendingDraftFromAnalysis(parsed, normalizedTags);
-        }
-
-        return;
-      }
-
-      if (detected.options.length === 1) {
-        const chosenMeaning = detected.options[0].translation_en;
-        const parsed = await analyzePhrase(rawPhrase, chosenMeaning);
 
         if (!parsed) {
           alert("Could not analyze this phrase.");
@@ -1322,15 +1171,26 @@ const updatedMeaningList = Array.from(
         rawPhrase,
         normalizedTags,
       });
+
       setMeaningOptions(detected.options);
+      setSelectedMeaningOptionIndexes(detected.options.length === 1 ? [0] : []);
       setMeaningPickerOpen(true);
     } finally {
       setMeaningPickerLoading(false);
     }
   };
 
-  const confirmMeaningChoice = async (option: MeaningOption) => {
+  const confirmSelectedMeaningChoices = async () => {
     if (!pendingMeaningChoice) return;
+
+    const selectedOptions = selectedMeaningOptionIndexes
+      .map((index) => meaningOptions[index])
+      .filter(Boolean);
+
+    if (selectedOptions.length === 0) {
+      setMeaningPickerError("Choose at least one meaning.");
+      return;
+    }
 
     const { source, rawPhrase, normalizedTags } = pendingMeaningChoice;
 
@@ -1338,20 +1198,22 @@ const updatedMeaningList = Array.from(
     setMeaningPickerError(null);
 
     try {
-      const parsed = await analyzePhrase(rawPhrase, option.translation_en);
+      for (const option of selectedOptions) {
+        const parsed = await analyzePhrase(rawPhrase, option.translation_en);
 
-      if (!parsed) {
-        setMeaningPickerError("Could not generate the card for that meaning.");
-        return;
+        if (!parsed) {
+          setMeaningPickerError("Could not generate one of the selected cards.");
+          return;
+        }
+
+        if (source === "draft" && selectedOptions.length === 1) {
+          createDraftCardFromAnalysis(parsed, normalizedTags);
+        } else {
+          await createPendingDraftFromAnalysis(parsed, normalizedTags);
+        }
       }
 
       resetMeaningPicker();
-
-      if (source === "draft") {
-        createDraftCardFromAnalysis(parsed, normalizedTags);
-      } else {
-        await createPendingDraftFromAnalysis(parsed, normalizedTags);
-      }
     } finally {
       setMeaningPickerLoading(false);
     }
@@ -1368,43 +1230,14 @@ const updatedMeaningList = Array.from(
     setSavingPhraseToPendingDraft(true);
 
     try {
-      const normalizedTags = Array.from(
-        new Set(selectedTags.map(normalizeTag).filter(Boolean))
-      );
-
-      await beginMeaningChoiceFlow(phrase.trim(), "pending", normalizedTags);
+      await beginMeaningChoiceFlow(phrase.trim(), "pending", []);
     } finally {
       setSavingPhraseToPendingDraft(false);
     }
   };
 
-  const toggleLookupOpen = () => {
-    setLookupOpen((prev) => !prev);
-  };
-
   const toggleTagFilter = (tag: string) => {
     setTagFilter((prev) => (prev === tag ? null : tag));
-  };
-
-  const toggleSelectedTag = (tag: string) => {
-    setSelectedTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-    );
-  };
-
-  const addNewTag = () => {
-    const tag = normalizeTag(newTagInput);
-    if (!tag) return;
-
-    if (!allTags.includes(tag)) {
-      setExtraTags((prev) => [...prev, tag].sort((a, b) => a.localeCompare(b, "da")));
-    }
-
-    setNewTagInput("");
-  };
-
-  const removeSelectedTag = (tag: string) => {
-    setSelectedTags((prev) => prev.filter((t) => t !== tag));
   };
 
   const clearPracticeSelection = () => {
@@ -1418,11 +1251,7 @@ const updatedMeaningList = Array.from(
     setLoading(true);
 
     try {
-      const normalizedTags = Array.from(
-        new Set(selectedTags.map(normalizeTag).filter(Boolean))
-      );
-
-      await beginMeaningChoiceFlow(phrase.trim(), "draft", normalizedTags);
+      await beginMeaningChoiceFlow(phrase.trim(), "draft", []);
     } finally {
       setLoading(false);
     }
@@ -1472,10 +1301,10 @@ const updatedMeaningList = Array.from(
       times_re_requested: 0,
       last_requested_again_at: null,
       learning_attempted: 0,
-learning_correct: 0,
-learning_almost: 0,
-learning_wrong: 0,
-last_learning_at: null,
+      learning_correct: 0,
+      learning_almost: 0,
+      learning_wrong: 0,
+      last_learning_at: null,
     };
 
     const { error } = await supabase.from(TABLES.phrases).insert(newCard);
@@ -1501,7 +1330,6 @@ last_learning_at: null,
     setDraftCard(null);
     setIsEditingDraft(false);
     setDraftEdit(null);
-    setSelectedTags([]);
     setDraftTagInput("");
     setShowAllDraftTags(false);
   };
@@ -1605,7 +1433,9 @@ last_learning_at: null,
     if (!tag) return;
 
     if (!allTags.includes(tag)) {
-      setExtraTags((prev) => [...prev, tag].sort((a, b) => a.localeCompare(b, "da")));
+      setExtraTags((prev) =>
+        [...prev, tag].sort((a, b) => a.localeCompare(b, "da"))
+      );
     }
 
     setDraftCard((prev) =>
@@ -1635,7 +1465,9 @@ last_learning_at: null,
 
     setCards((prev) =>
       sortByPhraseDa(
-        prev.map((c) => (c.id === cardId ? { ...c, tags: normalized } : c))
+        prev.map((card) =>
+          card.id === cardId ? { ...card, tags: normalized } : card
+        )
       )
     );
 
@@ -1658,7 +1490,11 @@ last_learning_at: null,
     }
 
     setPendingDrafts((prev) =>
-      sortByPhraseDa(prev.map((d) => (d.id === draftId ? { ...d, tags: normalized } : d)))
+      sortByPhraseDa(
+        prev.map((draft) =>
+          draft.id === draftId ? { ...draft, tags: normalized } : draft
+        )
+      )
     );
   };
 
@@ -1670,7 +1506,10 @@ last_learning_at: null,
     await saveCardTags(card.id, nextTags);
   };
 
-  const toggleInlinePendingDraftTag = async (draft: PendingDraft, tag: string) => {
+  const toggleInlinePendingDraftTag = async (
+    draft: PendingDraft,
+    tag: string
+  ) => {
     const nextTags = draft.tags.includes(tag)
       ? draft.tags.filter((t) => t !== tag)
       : [...draft.tags, tag];
@@ -1684,7 +1523,9 @@ last_learning_at: null,
     if (!tag) return;
 
     if (!allTags.includes(tag)) {
-      setExtraTags((prev) => [...prev, tag].sort((a, b) => a.localeCompare(b, "da")));
+      setExtraTags((prev) =>
+        [...prev, tag].sort((a, b) => a.localeCompare(b, "da"))
+      );
     }
 
     if (!card.tags.includes(tag)) {
@@ -1700,7 +1541,9 @@ last_learning_at: null,
     if (!tag) return;
 
     if (!allTags.includes(tag)) {
-      setExtraTags((prev) => [...prev, tag].sort((a, b) => a.localeCompare(b, "da")));
+      setExtraTags((prev) =>
+        [...prev, tag].sort((a, b) => a.localeCompare(b, "da"))
+      );
     }
 
     if (!draft.tags.includes(tag)) {
@@ -1713,7 +1556,8 @@ last_learning_at: null,
   const deleteCard = async (id: string) => {
     await supabase.from(TABLES.phrases).delete().eq("id", id);
 
-    setCards((prev) => prev.filter((c) => c.id !== id));
+    setCards((prev) => prev.filter((card) => card.id !== id));
+
     setSelectedForPractice((prev) => {
       const updated = prev.filter((selectedId) => selectedId !== id);
       localStorage.setItem("selected_phrase_ids", JSON.stringify(updated));
@@ -1721,10 +1565,12 @@ last_learning_at: null,
     });
 
     if (analysis?.id === id) setAnalysis(null);
+
     if (editingId === id) {
       setEditingId(null);
       setEditDraft(null);
     }
+
     if (expandedId === id) setExpandedId(null);
   };
 
@@ -1743,15 +1589,17 @@ last_learning_at: null,
       last_spontaneous_used_at: null,
       last_requested_again_at: null,
       learning_attempted: 0,
-learning_correct: 0,
-learning_almost: 0,
-learning_wrong: 0,
-last_learning_at: null,
+      learning_correct: 0,
+      learning_almost: 0,
+      learning_wrong: 0,
+      last_learning_at: null,
     };
 
     await supabase.from(TABLES.phrases).update(updates).eq("id", id);
 
-    setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)));
+    setCards((prev) =>
+      prev.map((card) => (card.id === id ? { ...card, ...updates } : card))
+    );
 
     if (analysis?.id === id) {
       setAnalysis((prev) => (prev ? { ...prev, ...updates } : prev));
@@ -1792,7 +1640,9 @@ last_learning_at: null,
     );
 
     if (duplicate) {
-      alert(`This phrase already exists: ${editDraft.phrase.trim()} (${editDraft.translation_en})`);
+      alert(
+        `This phrase already exists: ${editDraft.phrase.trim()} (${editDraft.translation_en})`
+      );
       return;
     }
 
@@ -1805,7 +1655,10 @@ last_learning_at: null,
       extra_info: editDraft.extra_info,
     };
 
-    const { error } = await supabase.from(TABLES.phrases).update(updates).eq("id", id);
+    const { error } = await supabase
+      .from(TABLES.phrases)
+      .update(updates)
+      .eq("id", id);
 
     if (error) {
       alert("Could not save changes.");
@@ -1822,7 +1675,9 @@ last_learning_at: null,
     });
 
     setCards((prev) =>
-      sortByPhraseDa(prev.map((c) => (c.id === id ? { ...c, ...updates } : c)))
+      sortByPhraseDa(
+        prev.map((card) => (card.id === id ? { ...card, ...updates } : card))
+      )
     );
 
     if (analysis?.id === id) {
@@ -1881,7 +1736,11 @@ last_learning_at: null,
     }
 
     setPendingDrafts((prev) =>
-      sortByPhraseDa(prev.map((d) => (d.id === draftId ? { ...d, ...updates } : d)))
+      sortByPhraseDa(
+        prev.map((draft) =>
+          draft.id === draftId ? { ...draft, ...updates } : draft
+        )
+      )
     );
 
     setEditingPendingDraftId(null);
@@ -1916,7 +1775,10 @@ last_learning_at: null,
       extra_info: parsed.extra_info,
     };
 
-    const { error } = await supabase.from(TABLES.phrases).update(updates).eq("id", card.id);
+    const { error } = await supabase
+      .from(TABLES.phrases)
+      .update(updates)
+      .eq("id", card.id);
 
     if (error) {
       alert("Could not refresh this phrase.");
@@ -1933,10 +1795,14 @@ last_learning_at: null,
     });
 
     setCards((prev) =>
-      sortByPhraseDa(prev.map((c) => (c.id === card.id ? { ...c, ...updates } : c)))
+      sortByPhraseDa(
+        prev.map((item) => (item.id === card.id ? { ...item, ...updates } : item))
+      )
     );
 
-    setAnalysis((prev) => (prev?.id === card.id ? { ...prev, ...updates } : prev));
+    setAnalysis((prev) =>
+      prev?.id === card.id ? { ...prev, ...updates } : prev
+    );
   };
 
   const refreshPendingDraftAnalysis = async (draft: PendingDraft) => {
@@ -1990,7 +1856,9 @@ last_learning_at: null,
     }
 
     setPendingDrafts((prev) =>
-      sortByPhraseDa(prev.map((d) => (d.id === draft.id ? { ...d, ...updates } : d)))
+      sortByPhraseDa(
+        prev.map((item) => (item.id === draft.id ? { ...item, ...updates } : item))
+      )
     );
   };
 
@@ -2001,7 +1869,9 @@ last_learning_at: null,
     );
 
     if (duplicateInCards) {
-      alert(`This phrase already exists in the database: ${draft.phrase} (${draft.translation_en})`);
+      alert(
+        `This phrase already exists in the database: ${draft.phrase} (${draft.translation_en})`
+      );
       return;
     }
 
@@ -2029,13 +1899,15 @@ last_learning_at: null,
       times_re_requested: 0,
       last_requested_again_at: null,
       learning_attempted: 0,
-learning_correct: 0,
-learning_almost: 0,
-learning_wrong: 0,
-last_learning_at: null,
+      learning_correct: 0,
+      learning_almost: 0,
+      learning_wrong: 0,
+      last_learning_at: null,
     };
 
-    const { error: insertError } = await supabase.from(TABLES.phrases).insert(newCard);
+    const { error: insertError } = await supabase
+      .from(TABLES.phrases)
+      .insert(newCard);
 
     if (insertError) {
       console.error("Save pending draft error:", insertError);
@@ -2064,11 +1936,12 @@ last_learning_at: null,
     }
 
     setCards((prev) => sortByPhraseDa([...prev, newCard]));
-    setPendingDrafts((prev) => prev.filter((d) => d.id !== draft.id));
+    setPendingDrafts((prev) => prev.filter((item) => item.id !== draft.id));
     setAnalysis(newCard);
     setExpandedId(newCard.id);
 
     if (expandedPendingDraftId === draft.id) setExpandedPendingDraftId(null);
+
     if (editingPendingDraftId === draft.id) {
       setEditingPendingDraftId(null);
       setPendingDraftEdit(null);
@@ -2076,16 +1949,20 @@ last_learning_at: null,
   };
 
   const discardPendingDraft = async (draftId: string) => {
-    const { error } = await supabase.from(TABLES.drafts).delete().eq("id", draftId);
+    const { error } = await supabase
+      .from(TABLES.drafts)
+      .delete()
+      .eq("id", draftId);
 
     if (error) {
       alert("Could not discard draft.");
       return;
     }
 
-    setPendingDrafts((prev) => prev.filter((d) => d.id !== draftId));
+    setPendingDrafts((prev) => prev.filter((draft) => draft.id !== draftId));
 
     if (expandedPendingDraftId === draftId) setExpandedPendingDraftId(null);
+
     if (editingPendingDraftId === draftId) {
       setEditingPendingDraftId(null);
       setPendingDraftEdit(null);
@@ -2100,27 +1977,31 @@ last_learning_at: null,
 
     const updatedCards = cards.map((card) => {
       if (!card.tags.includes(from)) return card;
+
       const newTags = Array.from(
         new Set(card.tags.map((tag) => (tag === from ? to : tag)))
       );
+
       return { ...card, tags: newTags };
     });
 
     const updatedPendingDrafts = pendingDrafts.map((draft) => {
       if (!draft.tags.includes(from)) return draft;
+
       const newTags = Array.from(
         new Set(draft.tags.map((tag) => (tag === from ? to : tag)))
       );
+
       return { ...draft, tags: newTags };
     });
 
-    const changedCards = updatedCards.filter((card, idx) => {
-      const oldTags = cards[idx].tags;
+    const changedCards = updatedCards.filter((card, index) => {
+      const oldTags = cards[index].tags;
       return JSON.stringify(oldTags) !== JSON.stringify(card.tags);
     });
 
-    const changedDrafts = updatedPendingDrafts.filter((draft, idx) => {
-      const oldTags = pendingDrafts[idx].tags;
+    const changedDrafts = updatedPendingDrafts.filter((draft, index) => {
+      const oldTags = pendingDrafts[index].tags;
       return JSON.stringify(oldTags) !== JSON.stringify(draft.tags);
     });
 
@@ -2184,15 +2065,6 @@ last_learning_at: null,
     }
   };
 
-  const handleLookupKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      if (!lookupLoading) {
-        void lookupWord();
-      }
-    }
-  };
-
   const handleDraftTagKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -2221,13 +2093,9 @@ last_learning_at: null,
   };
 
   const handleSelectionToggle = (checked: boolean, cardId: string) => {
-    let updated: string[];
-
-    if (checked) {
-      updated = [...selectedForPractice, cardId];
-    } else {
-      updated = selectedForPractice.filter((id) => id !== cardId);
-    }
+    const updated = checked
+      ? [...selectedForPractice, cardId]
+      : selectedForPractice.filter((id) => id !== cardId);
 
     setSelectedForPractice(updated);
     localStorage.setItem("selected_phrase_ids", JSON.stringify(updated));
@@ -2240,7 +2108,6 @@ last_learning_at: null,
     }));
   };
 
-  const visibleNewPhraseTags = showAllNewPhraseTags ? allTags : allTags.slice(0, 4);
   const visibleFilterTags = showAllFilterTags ? allTags : allTags.slice(0, 4);
   const visibleDraftTags = showAllDraftTags ? allTags : allTags.slice(0, 4);
 
@@ -2394,199 +2261,13 @@ last_learning_at: null,
       </div>
     </div>
 
-    <div
+        <div
       style={{
         display: "grid",
         gap: 16,
         marginBottom: 24,
       }}
-    >
-      <div className="card" style={{ margin: 0 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 12,
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <h3 className="subsection-title" style={{ marginBottom: 4 }}>
-              Support tools
-            </h3>
-            <div className="meta-text">
-              Useful, but secondary to adding a Danish phrase directly.
-            </div>
-          </div>
-
-          <button
-            onClick={() => setNewPhraseToolsOpen((prev) => !prev)}
-            className="button-secondary"
-          >
-            {newPhraseToolsOpen ? "Hide tools" : "Show tools"}
-          </button>
-        </div>
-
-        {newPhraseToolsOpen && (
-          <div style={{ marginTop: 16, display: "grid", gap: 16 }}>
-            <div className="mini-box">
-              <div style={{ marginBottom: 10 }} className="meta-text">
-                Tags for the new phrase
-              </div>
-
-              {allTags.length > 0 && (
-                <div className="tag-row" style={{ marginBottom: 12 }}>
-                  {visibleNewPhraseTags.map((tag) => {
-                    const selected = selectedTags.includes(tag);
-
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => toggleSelectedTag(tag)}
-                        className={selected ? "tag-pill-selected" : "tag-pill"}
-                        style={tagPillStyle(tag)}
-                      >
-                        {tag}
-                      </button>
-                    );
-                  })}
-
-                  {allTags.length > 4 && !showAllNewPhraseTags && (
-                    <button className="tag-pill" onClick={() => setShowAllNewPhraseTags(true)}>
-                      +{allTags.length - 4} more
-                    </button>
-                  )}
-
-                  {allTags.length > 4 && showAllNewPhraseTags && (
-                    <button className="tag-pill" onClick={() => setShowAllNewPhraseTags(false)}>
-                      show less
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <div className="controls-row" style={{ marginBottom: 12 }}>
-                <input
-                  value={newTagInput}
-                  onChange={(e) => setNewTagInput(e.target.value)}
-                  placeholder="New tag..."
-                  className="text-input"
-                  style={{ width: "100%", maxWidth: 260 }}
-                />
-
-                <button onClick={addNewTag} className="button-secondary">
-                  Add tag
-                </button>
-              </div>
-
-              {selectedTags.length > 0 && (
-                <div>
-                  <div style={{ marginBottom: 8 }} className="meta-text">
-                    Selected tags
-                  </div>
-
-                  <div className="tag-row">
-                    {selectedTags.map((tag) => (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => removeSelectedTag(tag)}
-                        className="tag-pill-selected"
-                        style={tagPillStyle(tag)}
-                      >
-                        {tag} ✕
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="mini-box">
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 12,
-                  flexWrap: "wrap",
-                }}
-              >
-                <div>
-                  <h3 className="subsection-title" style={{ marginBottom: 4 }}>
-                    Quick lookup
-                  </h3>
-                  <div className="meta-text">
-                    Look up an English word or phrase and save it to drafts.
-                  </div>
-                </div>
-
-                <button onClick={toggleLookupOpen} className="button-secondary">
-                  {lookupOpen ? "Hide lookup" : "Open lookup"}
-                </button>
-              </div>
-
-              {lookupOpen && (
-                <div style={{ marginTop: 14 }}>
-                  <div className="controls-row" style={{ alignItems: "flex-start" }}>
-                    <input
-                      ref={lookupInputRef}
-                      value={lookupEnglish}
-                      onChange={(e) => setLookupEnglish(e.target.value)}
-                      onKeyDown={handleLookupKeyDown}
-                      placeholder="Type English word or phrase..."
-                      className="text-input"
-                      style={{ width: "100%", maxWidth: 320 }}
-                    />
-
-                    <button
-                      onClick={() => void lookupWord()}
-                      disabled={lookupLoading || !lookupEnglish.trim()}
-                      className={`button-primary ${
-                        lookupLoading || !lookupEnglish.trim() ? "button-disabled" : ""
-                      }`}
-                    >
-                      {lookupLoading ? "Looking up..." : "Look up"}
-                    </button>
-                  </div>
-
-                  {lookupStatus && (
-                    <div className="meta-text" style={{ marginTop: 10 }}>
-                      {lookupStatus}
-                    </div>
-                  )}
-
-                  {lookupResult && (
-                    <div style={{ marginTop: 14 }}>
-                      <p><b>Danish:</b> {lookupResult.corrected_phrase}</p>
-                      <p><b>Explanation:</b> {lookupResult.short_explanation_da}</p>
-                      <p><b>Example:</b> {lookupResult.example_da}</p>
-                      <p><b>English:</b> {lookupResult.translation_en}</p>
-                      <p><b>Example EN:</b> {lookupResult.example_en}</p>
-                      <p><b>Extra info:</b> {lookupResult.extra_info || "—"}</p>
-
-                      <div style={{ marginTop: 10 }}>
-                        <button
-                          onClick={() => void saveLookupResultAsPendingDraft()}
-                          disabled={savingLookupDraft}
-                          className={`button-secondary ${
-                            savingLookupDraft ? "button-disabled" : ""
-                          }`}
-                        >
-                          {savingLookupDraft ? "Saving..." : "Create draft"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+    />
 
     {draftCard && (
       <div className="card" style={{ marginBottom: 24 }}>
@@ -3998,107 +3679,127 @@ last_learning_at: null,
       })}
     </div>
 
-    {meaningPickerOpen && (
+   {meaningPickerOpen && (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(15, 23, 42, 0.45)",
+      zIndex: 200,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+    }}
+    onClick={() => {
+      if (!meaningPickerLoading) closeMeaningPicker();
+    }}
+  >
+    <div
+      className="card"
+      style={{
+        width: "100%",
+        maxWidth: 760,
+        maxHeight: "85vh",
+        overflowY: "auto",
+        margin: 0,
+        padding: 20,
+        boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
       <div
         style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(15, 23, 42, 0.45)",
-          zIndex: 200,
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 16,
-        }}
-        onClick={() => {
-          if (!meaningPickerLoading) {
-            closeMeaningPicker();
-          }
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+          marginBottom: 14,
         }}
       >
-        <div
-          className="card"
-          style={{
-            width: "100%",
-            maxWidth: 760,
-            maxHeight: "85vh",
-            overflowY: "auto",
-            margin: 0,
-            padding: 20,
-            boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-              gap: 12,
-              marginBottom: 14,
-            }}
-          >
-            <div>
-              <h2 className="section-title" style={{ marginBottom: 6 }}>
-                Which meaning did you mean?
-              </h2>
-              <div className="meta-text">
-                The phrase seems to have more than one possible meaning. Choose the one you want for this card.
-              </div>
-            </div>
-
-            <button
-              onClick={closeMeaningPicker}
-              className="button-secondary"
-              disabled={meaningPickerLoading}
-            >
-              Close
-            </button>
+        <div>
+          <h2 className="section-title" style={{ marginBottom: 6 }}>
+            Which meaning(s) did you mean?
+          </h2>
+          <div className="meta-text">
+            Choose one or more meanings. Each selected meaning will become a separate draft card.
           </div>
+        </div>
 
-          {pendingMeaningChoice && (
-            <div
-              className="mini-box"
-              style={{ marginBottom: 14, background: "#f8fafc" }}
-            >
-              <div><b>Phrase:</b> {pendingMeaningChoice.rawPhrase}</div>
-            </div>
-          )}
+        {pendingMeaningChoice && (
+  <button
+    type="button"
+    onClick={() =>
+      void beginMeaningChoiceFlow(
+        pendingMeaningChoice.rawPhrase,
+        pendingMeaningChoice.source,
+        pendingMeaningChoice.normalizedTags
+      )
+    }
+    className="button-secondary"
+    disabled={meaningPickerLoading}
+  >
+    {meaningPickerLoading ? "Trying..." : "Try again"}
+  </button>
+)}
 
-          {meaningPickerError && (
-            <div
-              className="mini-box"
-              style={{
-                marginBottom: 14,
-                background: "#fef2f2",
-                border: "1px solid #fecaca",
-                color: "#991b1b",
-              }}
-            >
-              {meaningPickerError}
-            </div>
-          )}
+        <button
+          onClick={closeMeaningPicker}
+          className="button-secondary"
+          disabled={meaningPickerLoading}
+        >
+          Close
+        </button>
+      </div>
 
-          {meaningPickerLoading && meaningOptions.length === 0 ? (
-            <div className="mini-box" style={{ margin: 0 }}>
-              Preparing meaning options...
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              {meaningOptions.map((option, index) => (
+      {pendingMeaningChoice && (
+        <div className="mini-box" style={{ marginBottom: 14, background: "#f8fafc" }}>
+          <div>
+            <b>Phrase:</b> {pendingMeaningChoice.rawPhrase}
+          </div>
+        </div>
+      )}
+
+      {meaningPickerError && (
+        <div
+          className="mini-box"
+          style={{
+            marginBottom: 14,
+            background: "#fef2f2",
+            border: "1px solid #fecaca",
+            color: "#991b1b",
+          }}
+        >
+          {meaningPickerError}
+        </div>
+      )}
+
+      {meaningPickerLoading && meaningOptions.length === 0 ? (
+        <div className="mini-box" style={{ margin: 0 }}>
+          Preparing meaning options...
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "grid", gap: 12 }}>
+            {meaningOptions.map((option, index) => {
+              const selected = selectedMeaningOptionIndexes.includes(index);
+
+              return (
                 <div
                   key={`${option.translation_en}-${index}`}
                   className="mini-box"
                   style={{
                     margin: 0,
                     padding: 14,
-                    border: "1px solid #e5e7eb",
+                    border: selected ? "2px solid #2563eb" : "1px solid #e5e7eb",
+                    background: selected ? "#eff6ff" : "#ffffff",
                   }}
                 >
                   <div style={{ marginBottom: 8 }}>
                     <div style={{ fontWeight: 700, fontSize: 16 }}>
                       {option.translation_en}
                     </div>
+
                     <div className="meta-text" style={{ marginTop: 4 }}>
                       {option.short_explanation_da}
                     </div>
@@ -4111,19 +3812,51 @@ last_learning_at: null,
                   )}
 
                   <button
-                    onClick={() => void confirmMeaningChoice(option)}
-                    className="button-primary"
+                    type="button"
+                    onClick={() => toggleMeaningOptionIndex(index)}
+                    className={selected ? "button-primary" : "button-secondary"}
                     disabled={meaningPickerLoading}
                   >
-                    {meaningPickerLoading ? "Generating..." : "Choose this meaning"}
+                    {selected ? "Selected" : "Select"}
                   </button>
                 </div>
-              ))}
+              );
+            })}
+          </div>
+
+          <div
+            className="controls-row"
+            style={{
+              marginTop: 16,
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div className="meta-text">
+              Selected: {selectedMeaningOptionIndexes.length}
             </div>
-          )}
-        </div>
-      </div>
-    )}
+
+            <button
+              onClick={() => void confirmSelectedMeaningChoices()}
+              className={`button-primary ${
+                meaningPickerLoading || selectedMeaningOptionIndexes.length === 0
+                  ? "button-disabled"
+                  : ""
+              }`}
+              disabled={meaningPickerLoading || selectedMeaningOptionIndexes.length === 0}
+            >
+              {meaningPickerLoading
+                ? "Creating drafts..."
+                : selectedMeaningOptionIndexes.length === 1
+                  ? "Create 1 draft"
+                  : `Create ${selectedMeaningOptionIndexes.length} drafts`}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  </div>
+)}
 
     {refreshMeaningPicker.open && refreshMeaningPicker.itemId && refreshMeaningPicker.entityType && (
       <div

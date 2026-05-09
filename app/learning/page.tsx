@@ -9,9 +9,8 @@ const EXAMPLES_TABLE = TABLES.variants;
 const RECENT_LEARNING_KEY = "recent_learning_items_v1";
 const RECENT_LIMIT = 18;
 const PREPOSITION_SESSION_TOTAL = 10;
-const GAP_SESSION_TOTAL = 10;
 
-type ExerciseType = "translation" | "gap" | "preposition";
+type ExerciseType = "translation" | "preposition";
 
 type PhraseCard = {
   id: string;
@@ -52,13 +51,6 @@ type EvaluationResult = {
   corrected_answer_da: string | null;
 };
 
-type GapExercise = {
-  prompt: string;
-  answer: string;
-  options: string[];
-  fullSentence: string;
-};
-
 type PrepositionQuest = {
   prompt: string;
   answers: string[];
@@ -73,132 +65,28 @@ type PrepositionSession = {
   finished: boolean;
 };
 
-type GapSession = {
-  total: number;
-  current: number;
-  correct: number;
-  finished: boolean;
-};
-
 const PREPOSITIONS = [
-  "til", "på", "i", "med", "for", "fra", "om", "over",
-  "under", "efter", "før", "hos", "af", "gennem",
-  "mellem", "mod", "uden", "inden", "bag", "foran",
+  "til",
+  "på",
+  "i",
+  "med",
+  "for",
+  "fra",
+  "om",
+  "over",
+  "under",
+  "efter",
+  "før",
+  "hos",
+  "af",
+  "gennem",
+  "mellem",
+  "mod",
+  "uden",
+  "inden",
+  "bag",
+  "foran",
 ];
-
-const NOUN_LIKE_OPTIONS = [
-  "mødet",
-  "virksomheden",
-  "arbejde",
-  "projektet",
-  "børnene",
-  "beslutning",
-  "morgen",
-  "arbejdet",
-  "byen",
-  "sagen",
-  "uddannelse",
-  "reglerne",
-  "børn",
-  "filmen",
-  "festen",
-  "medarbejdere",
-  "miljøet",
-  "konsekvenser",
-  "måned",
-  "planen",
-  "problemet",
-  "stranden",
-  "vejret",
-  "forhold",
-  "klokken",
-  "penge",
-  "spørgsmål",
-  "sprog",
-  "jobbet",
-  "klimaforandringer",
-  "myldretiden",
-  "opvækst",
-  "regler",
-  "søster",
-  "stoffer",
-  "udvikling",
-  "eksamen",
-  "modstander",
-  "weekenden",
-  "læreren",
-  "opgaven",
-  "prisen",
-  "teksten",
-  "lyset",
-  "medarbejderne",
-  "øjeblik",
-  "priserne",
-  "rummet",
-  "ændringer",
-  "ansatte",
-  "budgettet",
-  "erfaring",
-  "sommer",
-  "aften",
-  "beslutningen",
-  "gymnasiet",
-  "kommunen",
-  "løsning",
-  "miljø",
-  "produkt",
-  "sandheden",
-  "tiltag",
-  "timer",
-  "biblioteket",
-  "eftermiddag",
-  "energi",
-  "forældre",
-  "forandringer",
-  "gæsterne",
-  "kaffe",
-  "løsninger",
-  "meninger",
-  "motorvejen",
-  "musik",
-  "musikken",
-  "pause",
-  "problemer",
-  "rapporten",
-  "regn",
-  "succes",
-  "telefon",
-  "udlandet",
-  "vilje",
-  "adfærd",
-  "adgangen",
-  "adgangskravene",
-  "afgrøderne",
-  "afspadsering",
-  "andel",
-  "antagelse",
-  "anvendelse",
-  "arbejdsløshed",
-  "arbejdspladsen",
-  "arbejdstid",
-  "arbejdsvilkår",
-  "arkitektur",
-  "arrangementer",
-  "årsag",
-  "årsopgørelse",
-  "barndom",
-  "bemærkning",
-  "betingelse",
-  "biler",
-  "biografen",
-  "bord",
-  "borgere",
-  "budskab",
-  "cigaretter",
-  "computere",
-];
-
-const shuffle = <T,>(items: T[]) => [...items].sort(() => Math.random() - 0.5);
 
 const hashString = (value: string) => {
   let hash = 2166136261;
@@ -285,63 +173,11 @@ const learningKeyFor = (
   type: ExerciseType
 ) => `${type}:${card.id}:${normalizeText(example.sentence_da)}`;
 
-const makeGapExercise = (sentence: string, phrase: string): GapExercise | null => {
-  if (!sentence || !phrase) return null;
-
-  const cleanPhrase = phrase.replace(/^at\s+/i, "").trim();
-  const words = cleanPhrase.split(/\s+/).filter(Boolean);
-
-  const preferredGapWords = [
-    "til", "på", "i", "med", "for", "fra", "om", "over",
-    "under", "efter", "før", "ved", "hos", "af",
-  ];
-
-  const wordToHide =
-    words.find((word) =>
-      preferredGapWords.includes(word.toLowerCase().replace(/[.,!?]/g, ""))
-    ) || words[Math.floor(words.length / 2)];
-
-  if (!wordToHide) return null;
-
-  const escaped = wordToHide.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`\\b${escaped}\\b`, "i");
-
-  if (!regex.test(sentence)) return null;
-
-  const normalizedAnswer = wordToHide.toLowerCase().replace(/[.,!?]/g, "");
-
-  const prepositionOptions = [
-    "til", "på", "i", "med", "for", "fra", "om", "over", "efter", "ved",
-  ];
-
-  const distractorPool = preferredGapWords.includes(normalizedAnswer)
-    ? prepositionOptions
-    : NOUN_LIKE_OPTIONS;
-
-  const distractors = seededShuffle(
-    distractorPool.filter((item) => item.toLowerCase() !== normalizedAnswer),
-    `${sentence}:${phrase}:distractors`
-  ).slice(0, 3);
-
-  const options = seededShuffle(
-    Array.from(new Set([wordToHide, ...distractors])),
-    `${sentence}:${phrase}:options`
-  );
-
-  return {
-    prompt: sentence.replace(regex, "_____"),
-    answer: wordToHide,
-    options,
-    fullSentence: sentence,
-  };
-};
-
 const makePrepositionQuest = (sentence: string): PrepositionQuest | null => {
   if (!sentence) return null;
 
   const blockedChunks = ["for at"];
   const tokens = sentence.split(/(\s+)/);
-
   const candidates: { index: number; answer: string }[] = [];
 
   for (let i = 0; i < tokens.length; i++) {
@@ -360,7 +196,11 @@ const makePrepositionQuest = (sentence: string): PrepositionQuest | null => {
 
   if (!candidates.length) return null;
 
-  const selectedCandidates = seededShuffle(candidates, `${sentence}:preposition-candidates`).slice(0, 1);
+  const selectedCandidates = seededShuffle(
+    candidates,
+    `${sentence}:preposition-candidates`
+  ).slice(0, 1);
+
   const answers = selectedCandidates.map((item) => item.answer);
   const promptTokens = [...tokens];
 
@@ -411,14 +251,7 @@ export default function LearningPage() {
     correct: 0,
     finished: false,
   });
-
-  const [gapSession, setGapSession] = useState<GapSession>({
-    total: GAP_SESSION_TOTAL,
-    current: 1,
-    correct: 0,
-    finished: false,
-  });
-
+const [switchingExerciseType, setSwitchingExerciseType] = useState(false);
   const [requireTargetPhrase, setRequireTargetPhrase] = useState(false);
   const [result, setResult] = useState<EvaluationResult | null>(null);
   const [checking, setChecking] = useState(false);
@@ -437,12 +270,6 @@ export default function LearningPage() {
     selectedExample?.sentence_da || card?.example_da || card?.phrase || "";
 
   const targetPhrase = card?.phrase || "";
-
-  const gapExercise = useMemo(() => {
-    return selectedExample?.sentence_da && card
-      ? makeGapExercise(selectedExample.sentence_da, card.phrase)
-      : null;
-  }, [selectedExample, card]);
 
   const prepositionQuest = useMemo(() => {
     return selectedExample?.sentence_da
@@ -516,7 +343,6 @@ export default function LearningPage() {
 
       return examples
         .filter((example) => {
-          if (type === "gap") return !!makeGapExercise(example.sentence_da, item.phrase);
           if (type === "preposition") return !!makePrepositionQuest(example.sentence_da);
           return true;
         })
@@ -669,7 +495,6 @@ export default function LearningPage() {
 
   const nextCard = async () => {
     if (exerciseType === "preposition" && !prepositionChecked) return;
-    if (exerciseType === "gap" && !result) return;
 
     if (exerciseType === "preposition" && prepositionChecked) {
       if (prepositionSession.current >= prepositionSession.total) {
@@ -680,53 +505,40 @@ export default function LearningPage() {
       setPrepositionSession((prev) => ({ ...prev, current: prev.current + 1 }));
     }
 
-    if (exerciseType === "gap" && result) {
-      if (gapSession.current >= gapSession.total) {
-        setGapSession((prev) => ({ ...prev, finished: true }));
-        return;
-      }
-
-      setGapSession((prev) => ({ ...prev, current: prev.current + 1 }));
-    }
-
     await moveToNextLearningItem();
   };
 
   const switchExerciseType = async (type: ExerciseType) => {
-    setExerciseType(type);
-    setAnswer("");
-    setPrepositionAnswers([]);
-    setPrepositionChecked(false);
-    setResult(null);
-    setHasRecordedResult(false);
+  setSwitchingExerciseType(true);
 
-    if (type === "preposition") {
-      setPrepositionSession({
-        total: PREPOSITION_SESSION_TOTAL,
-        current: 1,
-        correct: 0,
-        finished: false,
-      });
-    }
+  setAnswer("");
+  setPrepositionAnswers([]);
+  setPrepositionChecked(false);
+  setResult(null);
+  setHasRecordedResult(false);
 
-    if (type === "gap") {
-      setGapSession({
-        total: GAP_SESSION_TOTAL,
-        current: 1,
-        correct: 0,
-        finished: false,
-      });
-    }
+  if (type === "preposition") {
+    setPrepositionSession({
+      total: PREPOSITION_SESSION_TOTAL,
+      current: 1,
+      correct: 0,
+      finished: false,
+    });
+  }
 
-    const next = pickRandomLearningItem(cards, type, examplesByPhraseId, card?.id);
-    if (!next) return;
+  const next = pickRandomLearningItem(cards, type, examplesByPhraseId, card?.id);
 
+  if (next) {
     const translatedExample = await ensureTranslation(next.example, next.card.id);
 
     setCard(next.card);
     setSelectedExample(translatedExample);
     rememberLearningItem(next.card, translatedExample, type);
-  };
+  }
+
+  setExerciseType(type);
+  setSwitchingExerciseType(false);
+};
 
   const restartPrepositionSession = async () => {
     setPrepositionSession({
@@ -750,34 +562,6 @@ export default function LearningPage() {
     setSelectedExample(translatedExample);
     rememberLearningItem(next.card, translatedExample, "preposition");
   };
-
-  const restartGapSession = async () => {
-    setGapSession({
-      total: GAP_SESSION_TOTAL,
-      current: 1,
-      correct: 0,
-      finished: false,
-    });
-
-    setAnswer("");
-    setResult(null);
-    setHasRecordedResult(false);
-
-    const next = pickRandomLearningItem(cards, "gap", examplesByPhraseId, card?.id);
-    if (!next) return;
-
-    const translatedExample = await ensureTranslation(next.example, next.card.id);
-
-    setCard(next.card);
-    setSelectedExample(translatedExample);
-    rememberLearningItem(next.card, translatedExample, "gap");
-  };
-
-  const hasAnyGapExercise = cards.some((item) =>
-    examplesForCard(item, examplesByPhraseId).some((example) =>
-      makeGapExercise(example.sentence_da, item.phrase)
-    )
-  );
 
   const hasAnyPrepositionQuest = cards.some((item) =>
     examplesForCard(item, examplesByPhraseId).some((example) =>
@@ -838,7 +622,6 @@ export default function LearningPage() {
 
     if (exerciseType !== "preposition" && !answer.trim()) return;
     if (exerciseType === "preposition" && prepositionChecked) return;
-    if (exerciseType === "gap" && result) return;
 
     setChecking(true);
     setResult(null);
@@ -867,47 +650,6 @@ export default function LearningPage() {
             ? "Correct. Nice, that one landed."
             : "Not quite. Good one to remember.",
           corrected_answer_da: prepositionQuest.fullSentence,
-        });
-
-        if (!hasRecordedResult) {
-          await recordLearningResult(card, isCorrect ? "correct" : "wrong");
-          setHasRecordedResult(true);
-        }
-
-        return;
-      }
-
-      if (exerciseType === "gap" && gapExercise) {
-        const completedSentence = gapExercise.prompt.replace("_____", answer.trim());
-
-        const res = await fetch("/api/evaluate-translation", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            english_prompt: gapExercise.fullSentence,
-            reference_answer_da: gapExercise.fullSentence,
-            learner_answer_da: completedSentence,
-            target_phrase: "",
-            require_target_phrase: false,
-          }),
-        });
-
-        const data = await res.json();
-        const isCorrect = data.status === "correct";
-
-        if (isCorrect) {
-          setGapSession((prev) => ({ ...prev, correct: prev.correct + 1 }));
-        }
-
-        setResult({
-          status: isCorrect ? "correct" : "wrong",
-          meaning_ok: isCorrect,
-          natural_da: isCorrect,
-          target_phrase_used: isCorrect,
-          feedback_da: isCorrect
-            ? "Correct. Nice and clean."
-            : "Not quite. Good one to notice.",
-          corrected_answer_da: gapExercise.fullSentence,
         });
 
         if (!hasRecordedResult) {
@@ -950,17 +692,12 @@ export default function LearningPage() {
       ? prepositionChecked ||
         !prepositionQuest ||
         prepositionAnswers.filter(Boolean).length !== prepositionQuest.answers.length
-      : exerciseType === "gap"
-      ? !!result || !answer.trim()
       : !answer.trim());
 
   const answeredPrepositionQuestions =
     exerciseType === "preposition"
       ? prepositionSession.current - (prepositionChecked ? 0 : 1)
       : 0;
-
-  const answeredGapQuestions =
-    exerciseType === "gap" ? gapSession.current - (result ? 0 : 1) : 0;
 
   const modeButtonStyle = (active: boolean) => ({
     width: "auto",
@@ -1064,47 +801,6 @@ export default function LearningPage() {
               style={secondaryActionStyle}
               onClick={() => switchExerciseType("translation")}
             >
-             ← Back to learning mode
-            </button>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  if (exerciseType === "gap" && gapSession.finished) {
-    return (
-      <main className="app-page">
-        <div className="page-header">
-          <div className="page-header-main">
-            <h1 className="app-title">🧠 Learning Mode</h1>
-            <p className="app-subtitle">Gap round complete.</p>
-          </div>
-        </div>
-
-        <div className="card card-strong">
-          <h2 className="section-title">
-            Score: {gapSession.correct}/{gapSession.total}
-          </h2>
-
-          <p style={{ marginTop: 12 }}>
-            {encouragementForScore(gapSession.correct, gapSession.total)}
-          </p>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
-            <button
-              className="nav-button"
-              style={primaryActionStyle}
-              onClick={restartGapSession}
-            >
-              Start another 10
-            </button>
-
-            <button
-              className="nav-button"
-              style={secondaryActionStyle}
-              onClick={() => switchExerciseType("translation")}
-            >
               ← Back to learning mode
             </button>
           </div>
@@ -1119,7 +815,7 @@ export default function LearningPage() {
         <div className="page-header-main">
           <h1 className="app-title">🧠 Learning Mode</h1>
           <p className="app-subtitle">
-            Practice translating, filling gaps, prepositions, and recognizing phrase usage.
+            Practice translating, prepositions, and recognizing phrase usage.
           </p>
         </div>
 
@@ -1132,18 +828,10 @@ export default function LearningPage() {
 
       <div className="card card-strong" style={{ marginBottom: 24 }}>
         <h2 className="section-title">
-          {exerciseType === "translation"
-            ? "Translate into Danish"
-            : exerciseType === "gap"
-            ? `Gap round ${gapSession.current}/${gapSession.total}`
-            : `Preposition quest ${prepositionSession.current}/${prepositionSession.total}`}
+          {exerciseType === "preposition"
+            ? `Preposition quest ${prepositionSession.current}/${prepositionSession.total}`
+            : "Translate into Danish"}
         </h2>
-
-        {exerciseType === "gap" && (
-          <p className="meta-text" style={{ marginBottom: 12 }}>
-            Score so far: {gapSession.correct}/{answeredGapQuestions}
-          </p>
-        )}
 
         {exerciseType === "preposition" && (
           <p className="meta-text" style={{ marginBottom: 12 }}>
@@ -1161,15 +849,6 @@ export default function LearningPage() {
           </button>
 
           <button
-            className={exerciseType === "gap" ? "primary-button" : "nav-button"}
-            style={modeButtonStyle(exerciseType === "gap")}
-            onClick={() => switchExerciseType("gap")}
-            disabled={!hasAnyGapExercise}
-          >
-            Gap
-          </button>
-
-          <button
             className={exerciseType === "preposition" ? "primary-button" : "nav-button"}
             style={modeButtonStyle(exerciseType === "preposition")}
             onClick={() => switchExerciseType("preposition")}
@@ -1179,7 +858,52 @@ export default function LearningPage() {
           </button>
         </div>
 
-        {exerciseType === "translation" ? (
+        {exerciseType === "preposition" ? (
+          <>
+            <p className="meta-text" style={{ marginBottom: 12 }}>
+              Fill in the missing prepositions:
+            </p>
+
+            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 18 }}>
+              {prepositionQuest?.prompt}
+            </div>
+
+            {prepositionQuest?.answers.map((_, index) => (
+              <div key={index} style={{ marginBottom: 16 }}>
+                <p className="meta-text" style={{ marginBottom: 8 }}>
+                  {prepositionQuest.answers.length === 1
+                    ? "Choose the right preposition"
+                    : `Blank ${index + 1}`}
+                </p>
+
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {prepositionQuest.options.map((option, optionIndex) => (
+                    <button
+                      key={`${index}-${option}-${optionIndex}`}
+                      className={
+                        prepositionAnswers[index] === option
+                          ? "primary-button"
+                          : "nav-button"
+                      }
+                      style={optionButtonStyle(prepositionAnswers[index] === option)}
+                      onClick={() => {
+                        setPrepositionAnswers((prev) => {
+                          const next = [...prev];
+                          next[index] = option;
+                          return next;
+                        });
+                        setResult(null);
+                      }}
+                      disabled={checking || prepositionChecked}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </>
+        ) : (
           <>
             <p className="meta-text" style={{ marginBottom: 12 }}>
               English prompt:
@@ -1231,78 +955,6 @@ export default function LearningPage() {
               Require target phrase
             </label>
           </>
-        ) : exerciseType === "gap" ? (
-          <>
-            <p className="meta-text" style={{ marginBottom: 12 }}>
-              Choose the word that fits:
-            </p>
-
-            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 18 }}>
-              {gapExercise?.prompt}
-            </div>
-
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
-              {gapExercise?.options.map((option, optionIndex) => (
-                <button
-                  key={`${option}-${optionIndex}`}
-                  className={answer === option ? "primary-button" : "nav-button"}
-                  style={optionButtonStyle(answer === option)}
-                  onClick={() => {
-                    setAnswer(option);
-                    setResult(null);
-                  }}
-                  disabled={checking || !!result}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="meta-text" style={{ marginBottom: 12 }}>
-              Fill in the missing prepositions:
-            </p>
-
-            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 18 }}>
-              {prepositionQuest?.prompt}
-            </div>
-
-            {prepositionQuest?.answers.map((_, index) => (
-              <div key={index} style={{ marginBottom: 16 }}>
-                <p className="meta-text" style={{ marginBottom: 8 }}>
-                  {prepositionQuest.answers.length === 1
-                    ? "Choose the right preposition"
-                    : `Blank ${index + 1}`}
-                </p>
-
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {prepositionQuest.options.map((option, optionIndex) => (
-                    <button
-                      key={`${index}-${option}-${optionIndex}`}
-                      className={
-                        prepositionAnswers[index] === option
-                          ? "primary-button"
-                          : "nav-button"
-                      }
-                      style={optionButtonStyle(prepositionAnswers[index] === option)}
-                      onClick={() => {
-                        setPrepositionAnswers((prev) => {
-                          const next = [...prev];
-                          next[index] = option;
-                          return next;
-                        });
-                        setResult(null);
-                      }}
-                      disabled={checking || prepositionChecked}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </>
         )}
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 }}>
@@ -1319,19 +971,11 @@ export default function LearningPage() {
             className="nav-button"
             style={secondaryActionStyle}
             onClick={nextCard}
-            disabled={
-              checking ||
-              (exerciseType === "preposition" && !prepositionChecked) ||
-              (exerciseType === "gap" && !result)
-            }
+            disabled={checking || (exerciseType === "preposition" && !prepositionChecked)}
           >
             {exerciseType === "preposition"
               ? prepositionSession.current >= prepositionSession.total
                 ? "Finish quest"
-                : "Next →"
-              : exerciseType === "gap"
-              ? gapSession.current >= gapSession.total
-                ? "Finish round"
                 : "Next →"
               : "Next card →"}
           </button>
@@ -1344,7 +988,7 @@ export default function LearningPage() {
 
           <p style={{ marginTop: 10 }}>{result.feedback_da}</p>
 
-          {(exerciseType === "preposition" || exerciseType === "gap") && englishPrompt && (
+          {exerciseType === "preposition" && englishPrompt && (
             <p style={{ marginTop: 12 }}>
               <strong>English:</strong> {englishPrompt}
             </p>
@@ -1353,9 +997,7 @@ export default function LearningPage() {
           {result.corrected_answer_da && (
             <p style={{ marginTop: 12 }}>
               <strong>
-                {exerciseType === "translation"
-                  ? "Suggested version:"
-                  : "Full sentence:"}
+                {exerciseType === "translation" ? "Suggested version:" : "Full sentence:"}
               </strong>{" "}
               {result.corrected_answer_da}
             </p>
