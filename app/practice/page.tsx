@@ -1892,7 +1892,7 @@ const formatMeaningText = (text: string) => {
             disabled={selectedCards.length === 0}
             className={`button-secondary ${selectedCards.length === 0 ? "button-disabled" : ""}`}
           >
-            Exercises + chat
+            Warm-up + chat
           </button>
 
           <button onClick={() => setPracticeStage("setup")} className="button-secondary">
@@ -2099,7 +2099,7 @@ const formatMeaningText = (text: string) => {
                 Target phrases
               </h2>
               <div className="meta-text">
-                Click a phrase to insert it into your reply.
+                Click a phrase to insert it into your message.
               </div>
             </div>
 
