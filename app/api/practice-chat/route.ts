@@ -1,6 +1,5 @@
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
-import { evaluateAndApplySpontaneousUsage } from "../../practice/spontaneous";
 import { buildFeedbackSummary } from "../../practice/buildFeedbackSummary";
 import { TABLES } from "../../../lib/tables";
 
@@ -775,8 +774,6 @@ export async function POST(req: Request) {
       : [];
     const userMessage =
       typeof body.userMessage === "string" ? body.userMessage : "";
-      const skipSpontaneousDetection =
-  body.skipSpontaneousDetection === true;
 
     if (typedCards.length === 0) {
       return Response.json(
@@ -822,30 +819,6 @@ export async function POST(req: Request) {
       userMessage,
       phraseFeedback,
     });
-
-    if (userMessage.trim()) {
-      const isFirstTurn =
-        !previousAssistantMessage || !previousAssistantMessage.trim();
-
-      try {
-        await evaluateAndApplySpontaneousUsage({
-  openai,
-  supabase,
-  userMessage,
-  previousAssistantMessage,
-  currentTargetPhrases: phrasesWithVariants.map((item) => ({
-    id: item.id,
-    phrase: item.phrase,
-    translation_en: item.translation_en,
-    short_explanation: item.short_explanation,
-  })),
-  isFirstTurn,
-  skipSpontaneousDetection,
-});
-      } catch (err) {
-        console.error("Spontaneous tracking failed:", err);
-      }
-    }
 
     const payload = {
       reply,

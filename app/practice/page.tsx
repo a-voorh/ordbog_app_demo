@@ -4,6 +4,7 @@ import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 import { TABLES } from "../../lib/tables";
+import { truncate } from "fs";
 
 type PhraseCard = {
   id: string;
@@ -176,6 +177,7 @@ export default function PracticePage() {
   const [lastFeedbackSummary, setLastFeedbackSummary] =
   useState<FeedbackSummary | null>(null);
   const [usedPhraseIds, setUsedPhraseIds] = useState<string[]>([]);
+
 
   const [addFromMessageIndex, setAddFromMessageIndex] = useState<number | null>(null);
   const [candidatePhrase, setCandidatePhrase] = useState("");
@@ -1114,7 +1116,7 @@ export default function PracticePage() {
 
     setMessages(newHistory);
     setInput("");
-    setLoading(true);
+  setLoading(true);
     setLastPhraseFeedback([]);
     setLastFeedbackSummary(null);
     setAddFromMessageIndex(null);
@@ -1134,7 +1136,6 @@ export default function PracticePage() {
   cards: selectedCards,
   history: historyBase,
   userMessage: userText,
-  skipSpontaneousDetection: !!retryState,
 }),
       });
 
@@ -1151,6 +1152,36 @@ export default function PracticePage() {
       };
 
       setMessages([...newHistory, assistantMessage]);
+     if (!retryState) {
+  console.log("[practice page] starting background spontaneous scan", {
+    userMessage: userText,
+  });
+
+  void fetch("/api/analyze-spontaneous-usage", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      history: [...newHistory, assistantMessage],
+      userMessage: userText,
+      previousAssistantMessage:
+        historyBase
+          .slice()
+          .reverse()
+          .find((msg) => msg.role === "assistant")?.content ?? "",
+      currentTargetPhrases: selectedCards.map((card) => ({
+        id: card.id,
+        phrase: card.phrase,
+        translation_en: card.translation_en,
+        short_explanation: card.short_explanation,
+      })),
+    }),
+  }).catch((err) => {
+    console.error("[practice page] background spontaneous scan failed", err);
+  });
+}
+
 
       const rawFeedback = parsed.phraseFeedback || [];
       const feedbackForDisplay = retryState
@@ -2321,7 +2352,7 @@ const formatMeaningText = (text: string) => {
             }}
           >
             {messages.length === 0 ? (
-              <p>No conversation yet.</p>
+              <p> </p>
             ) : (
               messages.map((msg, i) => {
                 const latestAssistantIndex =
@@ -2494,7 +2525,36 @@ const formatMeaningText = (text: string) => {
                   </div>
                 );
               })
+                        )}
+            
+            {loading && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "flex-start",
+                  gap: 8,
+                  marginBottom: 10,
+                }}
+              >
+                <div
+                  className="chat-message chat-message-assistant"
+                  style={{
+                    maxWidth: "62%",
+                    borderRadius: 18,
+                    padding: "10px 13px",
+                    background: "#f5efe6",
+                  }}
+                >
+                  <div className="meta-text" style={{ marginBottom: 4 }}>
+                    Assistant
+                  </div>
+
+                  <div className="meta-text">Typing...</div>
+                </div>
+              </div>
             )}
+
             <div ref={chatBottomRef} />
           </div>
 

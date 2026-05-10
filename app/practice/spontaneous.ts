@@ -62,9 +62,11 @@ type EvaluateAndApplySpontaneousUsageArgs = {
 
 const DEBUG_SPONTANEOUS = false;
 
-const RECENT_SPONTANEOUS_DAYS = 1;
-const RECENT_PRACTICE_DAYS = 1;
-const RECENT_UNTRAINED_DAYS = 9;
+// Diagnostic values. Later we can make these stricter again.
+const RECENT_SPONTANEOUS_DAYS = 0.5;
+const RECENT_PRACTICE_DAYS = 0.25; // 6 hours
+const RECENT_UNTRAINED_DAYS = 1;
+
 const UNLIMITED_POOL_THRESHOLD = 500;
 const LARGE_DB_FIRST_TURN_CAP = 120;
 const LARGE_DB_LATER_TURN_CAP = 60;
@@ -192,6 +194,8 @@ const daysSinceIso = (iso: string | null) => {
 };
 
 const isRecentWithinDays = (iso: string | null, days: number) => {
+  if (days <= 0) return false;
+
   const diff = daysSinceIso(iso);
   return diff !== null && diff <= days;
 };
@@ -218,10 +222,12 @@ const getFilteredNonTargetRows = (
     }
 
     if (isRecentWithinDays(row.last_spontaneous_used_at, RECENT_SPONTANEOUS_DAYS)) {
+      debugLog("[spontaneous] filtered recent spontaneous:", row.phrase);
       return false;
     }
 
     if (isRecentWithinDays(row.last_practiced_at, RECENT_PRACTICE_DAYS)) {
+      debugLog("[spontaneous] filtered recent practice:", row.phrase);
       return false;
     }
 
@@ -229,6 +235,7 @@ const getFilteredNonTargetRows = (
     const recentlyAdded = isRecentWithinDays(row.created_at, RECENT_UNTRAINED_DAYS);
 
     if (neverTrained && recentlyAdded) {
+      debugLog("[spontaneous] filtered recent untrained:", row.phrase);
       return false;
     }
 
@@ -354,6 +361,13 @@ export async function evaluateAndApplySpontaneousUsage({
   const trimmedMessage = userMessage.trim();
   if (!trimmedMessage) return [];
 
+  debugLog("[spontaneous] starting evaluation", {
+    userMessage: trimmedMessage,
+    previousAssistantMessage,
+    currentTargetPhraseCount: currentTargetPhrases.length,
+    isFirstTurn,
+  });
+
   const { data, error } = await supabase.from(TABLES.phrases).select(
     "id, phrase, translation_en, short_explanation, created_at, times_attempted, times_correct, times_almost, last_practiced_at, last_spontaneous_used_at, times_spontaneous_correct, times_spontaneous_almost, times_spontaneous_wrong"
   );
@@ -405,6 +419,12 @@ export async function evaluateAndApplySpontaneousUsage({
     ? getFirstTurnPool(filteredRows)
     : getLaterTurnPool(filteredRows, trimmedMessage);
 
+  debugLog("[spontaneous] pool sizes", {
+    totalPhrases: allRows.length,
+    filteredRows: filteredRows.length,
+    initialCandidatePool: initialCandidatePool.length,
+  });
+
   if (initialCandidatePool.length === 0) {
     debugLog("[spontaneous] candidate pool is empty");
     return [];
@@ -412,6 +432,14 @@ export async function evaluateAndApplySpontaneousUsage({
 
   const candidatePool = initialCandidatePool.filter((row) =>
     hasLocalTextEvidence(row, trimmedMessage)
+  );
+
+  debugLog(
+    "[spontaneous] evidence candidates:",
+    candidatePool.map((row) => ({
+      phrase: row.phrase,
+      variants: row.matchingVariants,
+    }))
   );
 
   if (candidatePool.length === 0) {
@@ -453,12 +481,6 @@ export async function evaluateAndApplySpontaneousUsage({
   Meaning in English: ${row.translation_en || "(not provided)"}${variantsText}`;
     })
     .join("\n");
-
-  debugLog("[spontaneous] user message:", trimmedMessage);
-  debugLog("[spontaneous] total phrases:", allRows.length);
-  debugLog("[spontaneous] filtered pool size:", filteredRows.length);
-  debugLog("[spontaneous] initial candidate pool size:", initialCandidatePool.length);
-  debugLog("[spontaneous] evidence-filtered candidate pool size:", candidatePool.length);
 
   const evaluationResponse = await openai.responses.create({
     model: "gpt-4.1-mini",
@@ -610,13 +632,30 @@ ${trimmedMessage}`,
       return false;
     }
 
-    const candidateTexts = [candidateRow.phrase, ...candidateRow.matchingVariants];
-    const overlapRatio = getTokenOverlapRatio(match.detectedText, candidateTexts);
+   const candidateTexts = [candidateRow.phrase, ...candidateRow.matchingVariants];
+const overlapRatio = getTokenOverlapRatio(match.detectedText, candidateTexts);
 
-    if (overlapRatio < MIN_OVERLAP_RATIO) {
-      debugLog("[spontaneous] skipped low overlap:", match.phrase, overlapRatio);
-      return false;
-    }
+const hasExactCandidateEvidence = candidateTexts.some((text) => {
+  const stripped = stripLeadingAt(text);
+
+  return (
+    containsNormalizedSubstring(trimmedMessage, text) ||
+    containsNormalizedSubstring(trimmedMessage, stripped) ||
+    containsNormalizedSubstring(match.detectedText, text) ||
+    containsNormalizedSubstring(match.detectedText, stripped) ||
+    containsNormalizedSubstring(text, match.detectedText) ||
+    containsNormalizedSubstring(stripped, match.detectedText)
+  );
+});
+
+if (overlapRatio < MIN_OVERLAP_RATIO && !hasExactCandidateEvidence) {
+  debugLog("[spontaneous] skipped low overlap:", {
+    phrase: match.phrase,
+    detectedText: match.detectedText,
+    overlapRatio,
+  });
+  return false;
+}
 
     if (isClearlyCopiedFromAssistant(match.detectedText, previousAssistantMessage)) {
       debugLog("[spontaneous] skipped copied from assistant:", match.phrase);
@@ -712,7 +751,13 @@ ${trimmedMessage}`,
         updatePayload.last_practiced_at = nextLastPracticedAt;
       }
 
-      debugLog("[spontaneous] updating phrase:", row.id, row.phrase);
+      debugLog("[spontaneous] updating phrase:", {
+        id: row.id,
+        phrase: row.phrase,
+        status: match.status,
+        detectedText: match.detectedText,
+        updatePayload,
+      });
 
       const { error: updateError } = await supabase
         .from(TABLES.phrases)
@@ -721,13 +766,17 @@ ${trimmedMessage}`,
 
       if (updateError) {
         console.error("Failed to update spontaneous phrase stats:", updateError);
-      }
+      } //else {
+        //console.log("[spontaneous] updated phrase successfully:", row.phrase);
+      //}
     })
   );
-//console.log(
-  //`[spontaneous] ${validMatches.length} spontaneous phrase${
- //   validMatches.length === 1 ? "" : "s"
-  //} detected`
-//);
+
+  //console.log(
+    //`[spontaneous] ${validMatches.length} spontaneous phrase${
+   //   validMatches.length === 1 ? "" : "s"
+   // } detected and updated`
+ // );
+
   return dedupedMatches;
 }
