@@ -98,6 +98,29 @@ const PREPOSITIONS = [
   "foran",
 ];
 
+const PREPOSITION_PAIRS: Record<string, string> = {
+  til: "for",
+  for: "til",
+
+  i: "på",
+  på: "i",
+
+  af: "fra",
+  fra: "af",
+
+  med: "uden",
+  uden: "med",
+
+  over: "under",
+  under: "over",
+
+  før: "efter",
+  efter: "før",
+
+  bag: "foran",
+  foran: "bag",
+};
+
 const hashString = (value: string) => {
   let hash = 2166136261;
 
@@ -230,10 +253,21 @@ const makePrepositionQuest = (sentence: string): PrepositionQuest | null => {
     promptTokens[item.index] = "_____";
   });
 
-  const distractors = seededShuffle(
-    PREPOSITIONS.filter((p) => !answers.includes(p)),
-    `${sentence}:preposition-distractors`
-  ).slice(0, Math.max(0, 4 - answers.length));
+  const pairedDistractors = answers
+    .map((answer) => PREPOSITION_PAIRS[answer])
+    .filter((item): item is string => Boolean(item) && !answers.includes(item));
+
+  const randomDistractors = seededShuffle(
+    PREPOSITIONS.filter(
+      (p) => !answers.includes(p) && !pairedDistractors.includes(p)
+    ),
+    `${sentence}:random-preposition-distractors`
+  );
+
+  const distractors = [...pairedDistractors, ...randomDistractors].slice(
+    0,
+    Math.max(0, 4 - answers.length)
+  );
 
   const options = seededShuffle(
     Array.from(new Set([...answers, ...distractors])),
