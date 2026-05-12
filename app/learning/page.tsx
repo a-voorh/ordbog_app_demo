@@ -1102,7 +1102,7 @@ export default function LearningPage() {
 
         <div className="page-header-side">
           <Link href="/" className="link-reset">
-            <span className="nav-button">← Back</span>
+            <span className="nav-button">← Back to the Menu</span>
           </Link>
         </div>
       </div>
