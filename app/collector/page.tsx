@@ -122,6 +122,15 @@ type RefreshAction =
 
 type RefreshableItem = PhraseCard | PendingDraft;
 
+type UsageVariantInput = {
+  phrase: string;
+  translation_en: string;
+  short_explanation: string;
+  example_da: string;
+  example_en: string;
+  extra_info?: string | null;
+};
+
 type RefreshMeaningPickerState =
   | { open: false }
   | {
@@ -545,6 +554,19 @@ export default function Home() {
     );
   };
 
+  const hasSameRawPhraseInCards = (phraseValue: string) =>
+    cards.some((card) => normalizePhraseKey(card.phrase) === normalizePhraseKey(phraseValue));
+
+  const hasSameRawPhraseInPendingDrafts = (
+    phraseValue: string,
+    excludeDraftId?: string
+  ) =>
+    pendingDrafts.some(
+      (draft) =>
+        draft.id !== excludeDraftId &&
+        normalizePhraseKey(draft.phrase) === normalizePhraseKey(phraseValue)
+    );
+
   const getRefreshKey = (id: string, field: RefreshField) => `${id}:${field}`;
 
   const updateItemInList = <T extends RefreshableItem>(
@@ -590,31 +612,6 @@ export default function Home() {
 
   const closeRefreshMeaningPicker = () => {
     setRefreshMeaningPicker({ open: false });
-  };
-
-  const maybeRefreshUsageVariantsAfterFieldRefresh = async (
-    entityType: RefreshEntityType,
-    id: string,
-    updatedFields: Partial<RefreshableItem>
-  ) => {
-    if (entityType !== "phrase") return;
-
-    const currentCard = cards.find((card) => card.id === id);
-    if (!currentCard) return;
-
-    const merged: PhraseCard = {
-      ...currentCard,
-      ...(updatedFields as Partial<PhraseCard>),
-    };
-
-    await replaceUsageVariantsForPhrase(id, {
-      phrase: merged.phrase,
-      translation_en: merged.translation_en,
-      short_explanation: merged.short_explanation,
-      example_da: merged.example_da,
-      example_en: merged.example_en,
-      extra_info: merged.extra_info,
-    });
   };
 
   const callRefreshField = async (params: {
@@ -676,6 +673,118 @@ export default function Home() {
           : "Could not load meaning candidates."
       );
     }
+  };
+
+  const generateUsageVariants = async (input: UsageVariantInput) => {
+    try {
+      const res = await fetch("/api/generate-usage-variants", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(input),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error("Usage variant backend error:", data);
+        return [] as GeneratedUsageVariant[];
+      }
+
+      try {
+        const parsed = JSON.parse(data.result) as GeneratedUsageVariant[];
+
+        const cleaned = parsed
+          .map((item) => ({
+            variant_da: item.variant_da?.trim(),
+            variant_tag: item.variant_tag?.trim() || null,
+          }))
+          .filter((item) => item.variant_da);
+
+        return Array.from(
+          new Map(
+            cleaned.map((item) => [normalizePhraseKey(item.variant_da), item])
+          ).values()
+        );
+      } catch (err) {
+        console.error("Invalid JSON from usage variant route:", data?.result, err);
+        return [] as GeneratedUsageVariant[];
+      }
+    } catch (err) {
+      console.error("Failed to generate usage variants:", err);
+      return [] as GeneratedUsageVariant[];
+    }
+  };
+
+  const replaceUsageVariantsForPhrase = async (
+    phraseId: string,
+    input: UsageVariantInput
+  ) => {
+    const generatedVariants = await generateUsageVariants(input);
+
+    const { error: deleteError } = await supabase
+      .from(TABLES.variants)
+      .delete()
+      .eq("phrase_id", phraseId);
+
+    if (deleteError) {
+      console.error("Failed to clear existing usage variants:", deleteError);
+      return;
+    }
+
+    if (generatedVariants.length === 0) return;
+
+    const rows = generatedVariants.map((variant) => ({
+      phrase_id: phraseId,
+      variant_da: variant.variant_da,
+      variant_tag: variant.variant_tag ?? null,
+      usable_for_matching: true,
+      usable_for_practice: true,
+      source: "generated",
+    }));
+
+    const { error: insertError } = await supabase
+      .from(TABLES.variants)
+      .insert(rows);
+
+    if (insertError) {
+      console.error("Failed to save usage variants:", insertError);
+    }
+  };
+
+  const refreshUsageVariantsInBackground = (
+    phraseId: string,
+    input: UsageVariantInput
+  ) => {
+    void replaceUsageVariantsForPhrase(phraseId, input).catch((error) => {
+      console.error("Background usage variant refresh failed:", error);
+    });
+  };
+
+  const maybeRefreshUsageVariantsAfterFieldRefresh = async (
+    entityType: RefreshEntityType,
+    id: string,
+    updatedFields: Partial<RefreshableItem>
+  ) => {
+    if (entityType !== "phrase") return;
+
+    const currentCard = cards.find((card) => card.id === id);
+    if (!currentCard) return;
+
+    const merged: PhraseCard = {
+      ...currentCard,
+      ...(updatedFields as Partial<PhraseCard>),
+    };
+
+    refreshUsageVariantsInBackground(id, {
+      phrase: merged.phrase,
+      translation_en: merged.translation_en,
+      short_explanation: merged.short_explanation,
+      example_da: merged.example_da,
+      example_en: merged.example_en,
+      extra_info: merged.extra_info,
+    });
   };
 
   const chooseMeaningForItem = async (
@@ -868,98 +977,6 @@ export default function Home() {
     );
   };
 
-  const generateUsageVariants = async (input: {
-    phrase: string;
-    translation_en: string;
-    short_explanation: string;
-    example_da: string;
-    example_en: string;
-    extra_info?: string | null;
-  }) => {
-    try {
-      const res = await fetch("/api/generate-usage-variants", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        console.error("Usage variant backend error:", data);
-        return [] as GeneratedUsageVariant[];
-      }
-
-      try {
-        const parsed = JSON.parse(data.result) as GeneratedUsageVariant[];
-
-        const cleaned = parsed
-          .map((item) => ({
-            variant_da: item.variant_da?.trim(),
-            variant_tag: item.variant_tag?.trim() || null,
-          }))
-          .filter((item) => item.variant_da);
-
-        return Array.from(
-          new Map(
-            cleaned.map((item) => [normalizePhraseKey(item.variant_da), item])
-          ).values()
-        );
-      } catch (err) {
-        console.error("Invalid JSON from usage variant route:", data?.result, err);
-        return [] as GeneratedUsageVariant[];
-      }
-    } catch (err) {
-      console.error("Failed to generate usage variants:", err);
-      return [] as GeneratedUsageVariant[];
-    }
-  };
-
-  const replaceUsageVariantsForPhrase = async (
-    phraseId: string,
-    input: {
-      phrase: string;
-      translation_en: string;
-      short_explanation: string;
-      example_da: string;
-      example_en: string;
-      extra_info?: string | null;
-    }
-  ) => {
-    const generatedVariants = await generateUsageVariants(input);
-
-    const { error: deleteError } = await supabase
-      .from(TABLES.variants)
-      .delete()
-      .eq("phrase_id", phraseId);
-
-    if (deleteError) {
-      console.error("Failed to clear existing usage variants:", deleteError);
-      return;
-    }
-
-    if (generatedVariants.length === 0) return;
-
-    const rows = generatedVariants.map((variant) => ({
-      phrase_id: phraseId,
-      variant_da: variant.variant_da,
-      variant_tag: variant.variant_tag ?? null,
-      usable_for_matching: true,
-      usable_for_practice: true,
-      source: "generated",
-    }));
-
-    const { error: insertError } = await supabase
-      .from(TABLES.variants)
-      .insert(rows);
-
-    if (insertError) {
-      console.error("Failed to save usage variants:", insertError);
-    }
-  };
-
   const bumpRequestedAgain = async (
     phraseKey: string,
     translationEn?: string | null
@@ -1133,7 +1150,95 @@ export default function Home() {
     return true;
   };
 
-   const beginMeaningChoiceFlow = async (
+  const analyzePendingDraftInBackground = async (
+    draftId: string,
+    rawPhrase: string
+  ) => {
+    try {
+      const detected = await detectPhraseMeanings(rawPhrase);
+
+      if (
+        detected &&
+        Array.isArray(detected.options) &&
+        detected.options.length > 1
+      ) {
+        const firstOption = detected.options[0];
+        const parsed = await analyzePhrase(rawPhrase, firstOption.translation_en);
+
+        if (!parsed) return;
+
+        const updates = {
+          phrase: parsed.corrected_phrase.trim(),
+          translation_en: parsed.translation_en,
+          short_explanation: parsed.short_explanation_da,
+          example_da: parsed.example_da,
+          example_en: parsed.example_en,
+          extra_info: parsed.extra_info,
+          meanings: detected.options
+            .map((option) => option.translation_en?.trim())
+            .filter(Boolean),
+          source: "quick_capture_auto_analyzed",
+        };
+
+        const { error } = await supabase
+          .from(TABLES.drafts)
+          .update(updates)
+          .eq("id", draftId);
+
+        if (error) {
+          console.error("Could not update quick draft after analysis:", error);
+          return;
+        }
+
+        setPendingDrafts((prev) =>
+          sortByPhraseDa(
+            prev.map((draft) =>
+              draft.id === draftId ? { ...draft, ...updates } : draft
+            )
+          )
+        );
+
+        return;
+      }
+
+      const parsed = await analyzePhrase(rawPhrase);
+
+      if (!parsed) return;
+
+      const updates = {
+        phrase: parsed.corrected_phrase.trim(),
+        translation_en: parsed.translation_en,
+        short_explanation: parsed.short_explanation_da,
+        example_da: parsed.example_da,
+        example_en: parsed.example_en,
+        extra_info: parsed.extra_info,
+        meanings: [parsed.translation_en],
+        source: "quick_capture_auto_analyzed",
+      };
+
+      const { error } = await supabase
+        .from(TABLES.drafts)
+        .update(updates)
+        .eq("id", draftId);
+
+      if (error) {
+        console.error("Could not update quick draft after analysis:", error);
+        return;
+      }
+
+      setPendingDrafts((prev) =>
+        sortByPhraseDa(
+          prev.map((draft) =>
+            draft.id === draftId ? { ...draft, ...updates } : draft
+          )
+        )
+      );
+    } catch (error) {
+      console.error("Background draft analysis failed:", error);
+    }
+  };
+
+  const beginMeaningChoiceFlow = async (
     rawPhrase: string,
     source: "draft" | "pending",
     normalizedTags: string[]
@@ -1225,12 +1330,48 @@ export default function Home() {
   };
 
   const createPendingDraftFromPhrase = async () => {
-    if (!phrase.trim()) return;
+    const rawPhrase = phrase.trim();
+    if (!rawPhrase) return;
+
+    const duplicateInCards = hasSameRawPhraseInCards(rawPhrase);
+    const duplicateInDrafts = hasSameRawPhraseInPendingDrafts(rawPhrase);
+
+    if (duplicateInCards || duplicateInDrafts) {
+      alert(`This phrase already exists: ${rawPhrase}`);
+      return;
+    }
 
     setSavingPhraseToPendingDraft(true);
 
+    const draftId = crypto.randomUUID();
+
+    const quickDraft: PendingDraft = {
+      id: draftId,
+      phrase: rawPhrase,
+      translation_en: "Analyzing...",
+      short_explanation: "",
+      example_da: "",
+      example_en: "",
+      extra_info: "",
+      tags: [],
+      meanings: [],
+      created_at: new Date().toISOString(),
+      source: "quick_capture",
+    };
+
     try {
-      await beginMeaningChoiceFlow(phrase.trim(), "pending", []);
+      const { error } = await supabase.from(TABLES.drafts).insert(quickDraft);
+
+      if (error) {
+        console.error("Could not save quick draft:", error);
+        alert("Could not save draft.");
+        return;
+      }
+
+      setPendingDrafts((prev) => sortByPhraseDa([quickDraft, ...prev]));
+      setPhrase("");
+
+      void analyzePendingDraftInBackground(draftId, rawPhrase);
     } finally {
       setSavingPhraseToPendingDraft(false);
     }
@@ -1315,15 +1456,6 @@ export default function Home() {
       return;
     }
 
-    await replaceUsageVariantsForPhrase(newCard.id, {
-      phrase: newCard.phrase,
-      translation_en: newCard.translation_en,
-      short_explanation: newCard.short_explanation,
-      example_da: newCard.example_da,
-      example_en: newCard.example_en,
-      extra_info: newCard.extra_info,
-    });
-
     setCards((prev) => sortByPhraseDa([...prev, newCard]));
     setAnalysis(newCard);
     setExpandedId(newCard.id);
@@ -1332,6 +1464,15 @@ export default function Home() {
     setDraftEdit(null);
     setDraftTagInput("");
     setShowAllDraftTags(false);
+
+    refreshUsageVariantsInBackground(newCard.id, {
+      phrase: newCard.phrase,
+      translation_en: newCard.translation_en,
+      short_explanation: newCard.short_explanation,
+      example_da: newCard.example_da,
+      example_en: newCard.example_en,
+      extra_info: newCard.extra_info,
+    });
   };
 
   const discardDraft = () => {
@@ -1665,15 +1806,6 @@ export default function Home() {
       return;
     }
 
-    await replaceUsageVariantsForPhrase(id, {
-      phrase: updates.phrase,
-      translation_en: updates.translation_en,
-      short_explanation: updates.short_explanation,
-      example_da: updates.example_da,
-      example_en: updates.example_en,
-      extra_info: updates.extra_info,
-    });
-
     setCards((prev) =>
       sortByPhraseDa(
         prev.map((card) => (card.id === id ? { ...card, ...updates } : card))
@@ -1686,6 +1818,15 @@ export default function Home() {
 
     setEditingId(null);
     setEditDraft(null);
+
+    refreshUsageVariantsInBackground(id, {
+      phrase: updates.phrase,
+      translation_en: updates.translation_en,
+      short_explanation: updates.short_explanation,
+      example_da: updates.example_da,
+      example_en: updates.example_en,
+      extra_info: updates.extra_info,
+    });
   };
 
   const savePendingDraftEdit = async (draftId: string) => {
@@ -1785,15 +1926,6 @@ export default function Home() {
       return;
     }
 
-    await replaceUsageVariantsForPhrase(card.id, {
-      phrase: updates.phrase,
-      translation_en: updates.translation_en,
-      short_explanation: updates.short_explanation,
-      example_da: updates.example_da,
-      example_en: updates.example_en,
-      extra_info: updates.extra_info,
-    });
-
     setCards((prev) =>
       sortByPhraseDa(
         prev.map((item) => (item.id === card.id ? { ...item, ...updates } : item))
@@ -1803,6 +1935,15 @@ export default function Home() {
     setAnalysis((prev) =>
       prev?.id === card.id ? { ...prev, ...updates } : prev
     );
+
+    refreshUsageVariantsInBackground(card.id, {
+      phrase: updates.phrase,
+      translation_en: updates.translation_en,
+      short_explanation: updates.short_explanation,
+      example_da: updates.example_da,
+      example_en: updates.example_en,
+      extra_info: updates.extra_info,
+    });
   };
 
   const refreshPendingDraftAnalysis = async (draft: PendingDraft) => {
@@ -1863,6 +2004,11 @@ export default function Home() {
   };
 
   const savePendingDraftToDatabase = async (draft: PendingDraft) => {
+    if (!draft.translation_en || draft.translation_en === "Analyzing...") {
+      alert("This draft is still being analyzed. Try again in a moment.");
+      return;
+    }
+
     const duplicateInCards = hasSamePhraseMeaningInCards(
       draft.phrase,
       draft.translation_en
@@ -1915,15 +2061,6 @@ export default function Home() {
       return;
     }
 
-    await replaceUsageVariantsForPhrase(newCard.id, {
-      phrase: newCard.phrase,
-      translation_en: newCard.translation_en,
-      short_explanation: newCard.short_explanation,
-      example_da: newCard.example_da,
-      example_en: newCard.example_en,
-      extra_info: newCard.extra_info,
-    });
-
     const { error: deleteError } = await supabase
       .from(TABLES.drafts)
       .delete()
@@ -1932,6 +2069,16 @@ export default function Home() {
     if (deleteError) {
       alert("Saved to database, but could not remove draft.");
       setCards((prev) => sortByPhraseDa([...prev, newCard]));
+
+      refreshUsageVariantsInBackground(newCard.id, {
+        phrase: newCard.phrase,
+        translation_en: newCard.translation_en,
+        short_explanation: newCard.short_explanation,
+        example_da: newCard.example_da,
+        example_en: newCard.example_en,
+        extra_info: newCard.extra_info,
+      });
+
       return;
     }
 
@@ -1946,6 +2093,15 @@ export default function Home() {
       setEditingPendingDraftId(null);
       setPendingDraftEdit(null);
     }
+
+    refreshUsageVariantsInBackground(newCard.id, {
+      phrase: newCard.phrase,
+      translation_en: newCard.translation_en,
+      short_explanation: newCard.short_explanation,
+      example_da: newCard.example_da,
+      example_en: newCard.example_en,
+      extra_info: newCard.extra_info,
+    });
   };
 
   const discardPendingDraft = async (draftId: string) => {
