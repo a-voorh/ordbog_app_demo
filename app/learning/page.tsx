@@ -12,6 +12,9 @@ const PREPOSITION_SESSION_TOTAL = 10;
 const GAP_SESSION_TOTAL = 10;
 const GAP_WORD_TAG = "forbinderord!!!!";
 
+const IS_DEMO_MODE = process.env.NEXT_PUBLIC_APP_MODE === "demo";
+const ENABLE_GAP_EXERCISES = !IS_DEMO_MODE;
+
 type ExerciseType = "translation" | "preposition" | "gap";
 
 type PhraseCard = {
@@ -157,8 +160,10 @@ const normalizeText = (text: string) =>
 const cleanToken = (token: string) =>
   token.toLowerCase().replace(/[.,!?;:()"]/g, "").trim();
 
-const getGapWordsFromCards = (cards: PhraseCard[]) =>
-  Array.from(
+const getGapWordsFromCards = (cards: PhraseCard[]) => {
+  if (!ENABLE_GAP_EXERCISES) return [];
+
+  return Array.from(
     new Set(
       cards
         .filter((card) =>
@@ -168,6 +173,7 @@ const getGapWordsFromCards = (cards: PhraseCard[]) =>
         .filter(Boolean)
     )
   );
+};
 
 const getRecentLearningItems = () => {
   if (typeof window === "undefined") return [];
@@ -286,6 +292,7 @@ const makeGapExercise = (
   sentence: string,
   gapWords: string[]
 ): GapExercise | null => {
+  if (!ENABLE_GAP_EXERCISES) return null;
   if (!sentence || !gapWords.length) return null;
 
   const tokens = sentence.split(/(\s+)/);
@@ -454,6 +461,7 @@ export default function LearningPage() {
     gapWordList = getGapWordsFromCards(list)
   ) => {
     if (!list.length) return null;
+    if (type === "gap" && !ENABLE_GAP_EXERCISES) return null;
 
     const recent = getRecentLearningItems();
 
@@ -655,6 +663,8 @@ export default function LearningPage() {
   };
 
   const switchExerciseType = async (type: ExerciseType) => {
+    if (type === "gap" && !ENABLE_GAP_EXERCISES) return;
+
     setSwitchingExerciseType(true);
 
     setAnswer("");
@@ -734,6 +744,8 @@ export default function LearningPage() {
   };
 
   const restartGapSession = async () => {
+    if (!ENABLE_GAP_EXERCISES) return;
+
     setGapSession({
       total: GAP_SESSION_TOTAL,
       current: 1,
@@ -769,11 +781,13 @@ export default function LearningPage() {
     )
   );
 
-  const hasAnyGapExercise = cards.some((item) =>
-    examplesForCard(item, examplesByPhraseId).some((example) =>
-      makeGapExercise(example.sentence_da, gapWords)
-    )
-  );
+  const hasAnyGapExercise =
+    ENABLE_GAP_EXERCISES &&
+    cards.some((item) =>
+      examplesForCard(item, examplesByPhraseId).some((example) =>
+        makeGapExercise(example.sentence_da, gapWords)
+      )
+    );
 
   const recordLearningResult = async (
     cardToUpdate: PhraseCard,
@@ -828,7 +842,7 @@ export default function LearningPage() {
 
     if (exerciseType === "translation" && !answer.trim()) return;
     if (exerciseType === "preposition" && prepositionChecked) return;
-    if (exerciseType === "gap" && gapChecked) return;
+    if (exerciseType === "gap" && (!ENABLE_GAP_EXERCISES || gapChecked)) return;
 
     setChecking(true);
     setResult(null);
@@ -867,7 +881,7 @@ export default function LearningPage() {
         return;
       }
 
-      if (exerciseType === "gap" && gapExercise) {
+      if (exerciseType === "gap" && ENABLE_GAP_EXERCISES && gapExercise) {
         const isCorrect = gapAnswer.toLowerCase() === gapExercise.answer.toLowerCase();
 
         setGapChecked(true);
@@ -928,7 +942,7 @@ export default function LearningPage() {
         !prepositionQuest ||
         prepositionAnswers.filter(Boolean).length !== prepositionQuest.answers.length
       : exerciseType === "gap"
-      ? gapChecked || !gapExercise || !gapAnswer
+      ? !ENABLE_GAP_EXERCISES || gapChecked || !gapExercise || !gapAnswer
       : !answer.trim());
 
   const answeredPrepositionQuestions =
@@ -1049,7 +1063,7 @@ export default function LearningPage() {
     );
   }
 
-  if (exerciseType === "gap" && gapSession.finished) {
+  if (ENABLE_GAP_EXERCISES && exerciseType === "gap" && gapSession.finished) {
     return (
       <main className="app-page">
         <div className="page-header">
@@ -1096,7 +1110,9 @@ export default function LearningPage() {
         <div className="page-header-main">
           <h1 className="app-title">🧠 Learning Mode</h1>
           <p className="app-subtitle">
-            Practice translating, prepositions, and connector words.
+            {ENABLE_GAP_EXERCISES
+              ? "Practice translating, prepositions, and connector words."
+              : "Practice translating and prepositions."}
           </p>
         </div>
 
@@ -1111,7 +1127,7 @@ export default function LearningPage() {
         <h2 className="section-title">
           {exerciseType === "preposition"
             ? `Preposition quest ${prepositionSession.current}/${prepositionSession.total}`
-            : exerciseType === "gap"
+            : ENABLE_GAP_EXERCISES && exerciseType === "gap"
             ? `Connector quest ${gapSession.current}/${gapSession.total}`
             : "Translate into Danish"}
         </h2>
@@ -1122,7 +1138,7 @@ export default function LearningPage() {
           </p>
         )}
 
-        {exerciseType === "gap" && (
+        {ENABLE_GAP_EXERCISES && exerciseType === "gap" && (
           <p className="meta-text" style={{ marginBottom: 12 }}>
             Score so far: {gapSession.correct}/{answeredGapQuestions}
           </p>
@@ -1138,14 +1154,16 @@ export default function LearningPage() {
             Translation
           </button>
 
-          <button
-            className={exerciseType === "gap" ? "primary-button" : "nav-button"}
-            style={modeButtonStyle(exerciseType === "gap")}
-            onClick={() => switchExerciseType("gap")}
-            disabled={switchingExerciseType || !hasAnyGapExercise}
-          >
-            Gap words
-          </button>
+          {ENABLE_GAP_EXERCISES && (
+            <button
+              className={exerciseType === "gap" ? "primary-button" : "nav-button"}
+              style={modeButtonStyle(exerciseType === "gap")}
+              onClick={() => switchExerciseType("gap")}
+              disabled={switchingExerciseType || !hasAnyGapExercise}
+            >
+              Gap words
+            </button>
+          )}
 
           <button
             className={exerciseType === "preposition" ? "primary-button" : "nav-button"}
@@ -1202,7 +1220,7 @@ export default function LearningPage() {
               </div>
             ))}
           </>
-        ) : exerciseType === "gap" ? (
+        ) : ENABLE_GAP_EXERCISES && exerciseType === "gap" ? (
           <>
             <p className="meta-text" style={{ marginBottom: 12 }}>
               Choose the missing connector:
@@ -1307,7 +1325,7 @@ export default function LearningPage() {
               ? prepositionSession.current >= prepositionSession.total
                 ? "Finish quest"
                 : "Next →"
-              : exerciseType === "gap"
+              : ENABLE_GAP_EXERCISES && exerciseType === "gap"
               ? gapSession.current >= gapSession.total
                 ? "Finish quest"
                 : "Next →"
@@ -1322,11 +1340,13 @@ export default function LearningPage() {
 
           <p style={{ marginTop: 10 }}>{result.feedback_da}</p>
 
-          {(exerciseType === "preposition" || exerciseType === "gap") && englishPrompt && (
-            <p style={{ marginTop: 12 }}>
-              <strong>English:</strong> {englishPrompt}
-            </p>
-          )}
+          {(exerciseType === "preposition" ||
+            (ENABLE_GAP_EXERCISES && exerciseType === "gap")) &&
+            englishPrompt && (
+              <p style={{ marginTop: 12 }}>
+                <strong>English:</strong> {englishPrompt}
+              </p>
+            )}
 
           {result.corrected_answer_da && (
             <p style={{ marginTop: 12 }}>
