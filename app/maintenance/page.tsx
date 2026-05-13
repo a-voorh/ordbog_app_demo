@@ -12,7 +12,7 @@ export default function MaintenancePage() {
         }}
       >
         <div className="card card-strong" style={{ marginBottom: 20 }}>
-          <h1 className="app-title">🛠 Maintenance Mode</h1>
+          <h1 className="app-title">🛠 Maintenance Mode (under construction)</h1>
 
           <p
             className="meta-text"

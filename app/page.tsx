@@ -187,7 +187,7 @@ export default function HomePage() {
               marginBottom: 10,
             }}
           >
-            📚 Mit ordforråd
+            📚 Mit ordforråd: ord for ord
           </h1>
 
           <p
