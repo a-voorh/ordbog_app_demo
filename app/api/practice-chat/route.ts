@@ -244,11 +244,13 @@ const buildSinglePhrasePrompt = ({
   translationEn,
   shortExplanation,
   acceptedVariants,
+  allActiveTargetPhrases,
 }: {
   phrase: string;
   translationEn: string;
   shortExplanation: string;
   acceptedVariants: string[];
+  allActiveTargetPhrases: string[];
 }) => {
   const targetPhraseBlock = [
     `Base phrase: ${phrase}`,
@@ -259,10 +261,17 @@ const buildSinglePhrasePrompt = ({
       : `Accepted stored variants:\n(none)`,
   ].join("\n");
 
+  const otherTargets = allActiveTargetPhrases.filter(
+    (p) => normalizeText(p) !== normalizeText(phrase)
+  );
+
   return `You evaluate whether a learner used ONE target Danish phrase correctly in their latest message.
 
 TARGET PHRASE TO EVALUATE:
 ${targetPhraseBlock}
+
+OTHER ACTIVE TARGET PHRASES IN THIS PRACTICE SESSION:
+${otherTargets.length > 0 ? otherTargets.map((p) => `- ${p}`).join("\n") : "(none)"}
 
 You must inspect:
 1. the learner message
@@ -278,6 +287,25 @@ You must judge whether the learner used THIS target phrase in THIS target meanin
 CRITICAL:
 Do NOT infer usage from meaning alone.
 There must be visible textual evidence in the learner message.
+
+IMPORTANT ABOUT ALTERNATIVE TARGETS:
+The learner is NOT expected to use every active target phrase in one message.
+
+If the learner uses another active target phrase correctly, do NOT criticize them for not using this target phrase.
+
+Never say:
+- "used X instead of Y"
+- "you used X, but the target was Y"
+- "you should have used Y"
+- "you did not use Y"
+
+when X is also one of the active target phrases.
+
+In that case, this target phrase should simply be:
+- status: "unused"
+- comment: ""
+- suggestion: ""
+- detectedText: ""
 
 Very important distinction:
 - If the learner clearly tried to use the target phrase but used the wrong meaning, mark "wrong".
@@ -297,7 +325,8 @@ This target phrase counts as used ONLY if the learner used:
 - an accepted stored variant
 - a natural inflected form of either
 
-If the learner expresses a similar meaning using different words, mark "unused".
+If the learner expresses a similar meaning using different wording:
+→ mark "unused"
 
 Evaluate the TARGET PHRASE separately from the rest of the sentence.
 
@@ -327,6 +356,7 @@ Use "unused" when:
 - the phrase is not present
 - a different construction was used
 - the same word is used with another meaning
+- another active target phrase was used instead
 - you are unsure whether the learner attempted this phrase
 
 CRITICAL:
@@ -393,6 +423,16 @@ Ignore punctuation and capitalization.
 - "almost"/"wrong" → short correction only if useful
 
 Never repeat the learner's sentence as suggestion.
+
+--------------------------------
+8. TONE
+--------------------------------
+
+Be gentle and supportive.
+
+Do not scold the learner.
+Do not complain that they failed to use a phrase.
+Do not criticize them for using one valid target phrase instead of another.
 
 --------------------------------
 OUTPUT
@@ -606,7 +646,6 @@ const generateSafeAssistantReply = async ({
     userMessage,
   });
 
-  // Always rewrite once. This is safer because the assistant must not leak target phrases.
   reply = await rewriteAssistantReply({
     openai,
     reply,
@@ -648,6 +687,17 @@ const evaluateTargetPhrases = async ({
     );
   }
 
+  const allActiveTargetPhrases = Array.from(
+    new Set(
+      phrasesWithVariants.flatMap((item) => [
+        item.phrase,
+        stripLeadingAt(item.phrase),
+        ...(item.matchingVariants || []),
+        ...(item.matchingVariants || []).map(stripLeadingAt),
+      ])
+    )
+  ).filter(Boolean);
+
   return Promise.all(
     phrasesWithVariants.map(async (phraseItem) => {
       const singlePhraseResponse = await openai.responses.create({
@@ -660,6 +710,7 @@ const evaluateTargetPhrases = async ({
               translationEn: phraseItem.translation_en,
               shortExplanation: phraseItem.short_explanation,
               acceptedVariants: phraseItem.matchingVariants || [],
+              allActiveTargetPhrases,
             }),
           },
           {
@@ -726,7 +777,7 @@ ${userMessage}`,
           suggestion:
             typeof parsed.suggestion === "string" ? parsed.suggestion : "",
           detectedText:
-            typeof parsed.detectedText === "string" ? parsed.detectedText : "",
+            typeof parsed.detectedText === "string" ? parsed.detectText : "",
           sentenceIssue:
             parsed.sentenceIssue === "minor" ||
             parsed.sentenceIssue === "major"
@@ -754,6 +805,61 @@ ${userMessage}`,
     })
   );
 };
+
+const cleanAlternativeTargetFeedback = ({
+  phraseFeedback,
+  phrasesWithVariants,
+}: {
+  phraseFeedback: PhraseFeedbackItem[];
+  phrasesWithVariants: PhraseWithVariants[];
+}) =>
+  phraseFeedback.map((item) => {
+    const normalizedDetected = normalizeText(item.detectedText || "");
+    const normalizedOwnAlternatives = [
+      item.phrase,
+      stripLeadingAt(item.phrase),
+      ...(phrasesWithVariants.find((p) => p.id === item.phraseId)
+        ?.matchingVariants || []),
+    ].map(normalizeText);
+
+    const detectedIsOwnTarget = normalizedOwnAlternatives.includes(
+      normalizedDetected
+    );
+
+    if (!normalizedDetected || detectedIsOwnTarget) {
+      return item;
+    }
+
+    const detectedIsOtherTarget = phrasesWithVariants.some((phraseItem) => {
+      if (phraseItem.id === item.phraseId) return false;
+
+      const alternatives = [
+        phraseItem.phrase,
+        stripLeadingAt(phraseItem.phrase),
+        ...(phraseItem.matchingVariants || []),
+        ...(phraseItem.matchingVariants || []).map(stripLeadingAt),
+      ];
+
+      return alternatives.some(
+        (alternative) => normalizeText(alternative) === normalizedDetected
+      );
+    });
+
+    if (!detectedIsOtherTarget) {
+      return item;
+    }
+
+    return {
+      ...item,
+      status: "unused" as const,
+      comment: "",
+      suggestion: "",
+      detectedText: "",
+      sentenceIssue: "none" as const,
+      sentenceComment: "",
+      correctedSentence: "",
+    };
+  });
 
 export async function POST(req: Request) {
   try {
@@ -807,11 +913,16 @@ export async function POST(req: Request) {
       userMessage,
     });
 
-    const phraseFeedback = await evaluateTargetPhrases({
+    const rawPhraseFeedback = await evaluateTargetPhrases({
       openai,
       phrasesWithVariants,
       userMessage,
       previousAssistantMessage,
+    });
+
+    const phraseFeedback = cleanAlternativeTargetFeedback({
+      phraseFeedback: rawPhraseFeedback,
+      phrasesWithVariants,
     });
 
     const feedbackSummary = await buildFeedbackSummary({
