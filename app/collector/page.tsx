@@ -302,10 +302,20 @@ export default function Home() {
   const [selectedMeaningOptionIndexes, setSelectedMeaningOptionIndexes] =
     useState<number[]>([]);
 
+  const [customMeaningOpen, setCustomMeaningOpen] = useState(false);
+  const [customMeaningText, setCustomMeaningText] = useState("");
+  const [customMeaningContext, setCustomMeaningContext] = useState("");
+
   const [refreshMeaningPicker, setRefreshMeaningPicker] =
     useState<RefreshMeaningPickerState>({ open: false });
 
   const [refreshingKey, setRefreshingKey] = useState<string | null>(null);
+
+  const [refreshCustomMeaningOpen, setRefreshCustomMeaningOpen] =
+    useState(false);
+  const [refreshCustomMeaningText, setRefreshCustomMeaningText] = useState("");
+  const [refreshCustomMeaningContext, setRefreshCustomMeaningContext] =
+    useState("");
 
   useEffect(() => {
     const load = async () => {
@@ -528,8 +538,8 @@ export default function Home() {
     phraseValue: string,
     translationEn: string,
     excludeCardId?: string
-  ) => {
-    return cards.some(
+  ) =>
+    cards.some(
       (card) =>
         card.id !== excludeCardId &&
         isSamePhraseMeaning(card, {
@@ -537,14 +547,13 @@ export default function Home() {
           translation_en: translationEn,
         })
     );
-  };
 
   const hasSamePhraseMeaningInPendingDrafts = (
     phraseValue: string,
     translationEn: string,
     excludeDraftId?: string
-  ) => {
-    return pendingDrafts.some(
+  ) =>
+    pendingDrafts.some(
       (draft) =>
         draft.id !== excludeDraftId &&
         isSamePhraseMeaning(draft, {
@@ -552,10 +561,11 @@ export default function Home() {
           translation_en: translationEn,
         })
     );
-  };
 
   const hasSameRawPhraseInCards = (phraseValue: string) =>
-    cards.some((card) => normalizePhraseKey(card.phrase) === normalizePhraseKey(phraseValue));
+    cards.some(
+      (card) => normalizePhraseKey(card.phrase) === normalizePhraseKey(phraseValue)
+    );
 
   const hasSameRawPhraseInPendingDrafts = (
     phraseValue: string,
@@ -612,6 +622,9 @@ export default function Home() {
 
   const closeRefreshMeaningPicker = () => {
     setRefreshMeaningPicker({ open: false });
+    setRefreshCustomMeaningOpen(false);
+    setRefreshCustomMeaningText("");
+    setRefreshCustomMeaningContext("");
   };
 
   const callRefreshField = async (params: {
@@ -658,6 +671,10 @@ export default function Home() {
         action: "generate_meaning_candidates",
         existingMeanings: item.meanings ?? [],
       });
+
+      setRefreshCustomMeaningOpen(false);
+      setRefreshCustomMeaningText("");
+      setRefreshCustomMeaningContext("");
 
       setRefreshMeaningPicker({
         open: true,
@@ -842,6 +859,80 @@ export default function Home() {
     }
   };
 
+  const chooseCustomMeaningForItem = async () => {
+    if (!refreshMeaningPicker.open) return;
+
+    const intendedMeaning = refreshCustomMeaningText.trim();
+    const contextSentence = refreshCustomMeaningContext.trim();
+
+    if (!intendedMeaning && !contextSentence) {
+      alert("Write the meaning you meant, or paste the sentence where you saw it.");
+      return;
+    }
+
+    const item = findRefreshItemById(
+      refreshMeaningPicker.entityType,
+      refreshMeaningPicker.itemId
+    );
+
+    if (!item) {
+      alert("Could not find the item to update.");
+      return;
+    }
+
+    const parsed = await analyzePhrase(item.phrase, undefined, {
+      intendedMeaning,
+      contextSentence,
+    });
+
+    if (!parsed) {
+      alert("Could not analyze this meaning.");
+      return;
+    }
+
+    const updatedMeaningList = Array.from(
+      new Set([...(item.meanings ?? []), parsed.translation_en].filter(Boolean))
+    );
+
+    const updatedFields: Partial<RefreshableItem> = {
+      phrase: parsed.corrected_phrase.trim(),
+      translation_en: parsed.translation_en,
+      short_explanation: parsed.short_explanation_da,
+      example_da: parsed.example_da,
+      example_en: parsed.example_en,
+      extra_info: parsed.extra_info,
+      meanings: updatedMeaningList,
+    };
+
+    const { error } = await supabase
+      .from(
+        refreshMeaningPicker.entityType === "phrase"
+          ? TABLES.phrases
+          : TABLES.drafts
+      )
+      .update(updatedFields)
+      .eq("id", refreshMeaningPicker.itemId);
+
+    if (error) {
+      alert("Could not save this meaning.");
+      return;
+    }
+
+    applyUpdatedFieldsLocally(
+      refreshMeaningPicker.entityType,
+      refreshMeaningPicker.itemId,
+      updatedFields
+    );
+
+    await maybeRefreshUsageVariantsAfterFieldRefresh(
+      refreshMeaningPicker.entityType,
+      refreshMeaningPicker.itemId,
+      updatedFields
+    );
+
+    closeRefreshMeaningPicker();
+  };
+
   const refreshExplanationField = async (
     item: RefreshableItem,
     entityType: RefreshEntityType,
@@ -960,23 +1051,6 @@ export default function Home() {
     }
   };
 
-  const resetMeaningPicker = () => {
-    setMeaningPickerOpen(false);
-    setMeaningPickerLoading(false);
-    setMeaningPickerError(null);
-    setMeaningOptions([]);
-    setPendingMeaningChoice(null);
-    setSelectedMeaningOptionIndexes([]);
-  };
-
-  const toggleMeaningOptionIndex = (index: number) => {
-    setSelectedMeaningOptionIndexes((prev) =>
-      prev.includes(index)
-        ? prev.filter((item) => item !== index)
-        : [...prev, index]
-    );
-  };
-
   const bumpRequestedAgain = async (
     phraseKey: string,
     translationEn?: string | null
@@ -1052,10 +1126,26 @@ export default function Home() {
 
     if (!res.ok) return null;
 
-    return data as MeaningDetectionResult;
+    try {
+      if (typeof data.result === "string") {
+        return JSON.parse(data.result) as MeaningDetectionResult;
+      }
+
+      return data as MeaningDetectionResult;
+    } catch (error) {
+      console.error("Could not parse meaning detection result:", data, error);
+      return null;
+    }
   };
 
-  const analyzePhrase = async (p: string, translationEn?: string) => {
+  const analyzePhrase = async (
+    p: string,
+    translationEn?: string,
+    options?: {
+      intendedMeaning?: string;
+      contextSentence?: string;
+    }
+  ) => {
     const res = await fetch("/api/analyze-phrase", {
       method: "POST",
       headers: {
@@ -1064,6 +1154,12 @@ export default function Home() {
       body: JSON.stringify({
         phrase: p,
         ...(translationEn ? { translation_en: translationEn } : {}),
+        ...(options?.intendedMeaning
+          ? { intendedMeaning: options.intendedMeaning }
+          : {}),
+        ...(options?.contextSentence
+          ? { contextSentence: options.contextSentence }
+          : {}),
       }),
     });
 
@@ -1279,10 +1375,33 @@ export default function Home() {
 
       setMeaningOptions(detected.options);
       setSelectedMeaningOptionIndexes(detected.options.length === 1 ? [0] : []);
+      setCustomMeaningOpen(false);
+      setCustomMeaningText("");
+      setCustomMeaningContext("");
       setMeaningPickerOpen(true);
     } finally {
       setMeaningPickerLoading(false);
     }
+  };
+
+  const resetMeaningPicker = () => {
+    setMeaningPickerOpen(false);
+    setMeaningPickerLoading(false);
+    setMeaningPickerError(null);
+    setMeaningOptions([]);
+    setPendingMeaningChoice(null);
+    setSelectedMeaningOptionIndexes([]);
+    setCustomMeaningOpen(false);
+    setCustomMeaningText("");
+    setCustomMeaningContext("");
+  };
+
+  const toggleMeaningOptionIndex = (index: number) => {
+    setSelectedMeaningOptionIndexes((prev) =>
+      prev.includes(index)
+        ? prev.filter((item) => item !== index)
+        : [...prev, index]
+    );
   };
 
   const confirmSelectedMeaningChoices = async () => {
@@ -1316,6 +1435,47 @@ export default function Home() {
         } else {
           await createPendingDraftFromAnalysis(parsed, normalizedTags);
         }
+      }
+
+      resetMeaningPicker();
+    } finally {
+      setMeaningPickerLoading(false);
+    }
+  };
+
+  const confirmCustomMeaningChoice = async () => {
+    if (!pendingMeaningChoice) return;
+
+    const intendedMeaning = customMeaningText.trim();
+    const contextSentence = customMeaningContext.trim();
+
+    if (!intendedMeaning && !contextSentence) {
+      setMeaningPickerError(
+        "Write the meaning you meant, or paste the sentence where you saw it."
+      );
+      return;
+    }
+
+    const { source, rawPhrase, normalizedTags } = pendingMeaningChoice;
+
+    setMeaningPickerLoading(true);
+    setMeaningPickerError(null);
+
+    try {
+      const parsed = await analyzePhrase(rawPhrase, undefined, {
+        intendedMeaning,
+        contextSentence,
+      });
+
+      if (!parsed) {
+        setMeaningPickerError("Could not analyze this meaning.");
+        return;
+      }
+
+      if (source === "draft") {
+        createDraftCardFromAnalysis(parsed, normalizedTags);
+      } else {
+        await createPendingDraftFromAnalysis(parsed, normalizedTags);
       }
 
       resetMeaningPicker();
@@ -3858,30 +4018,32 @@ export default function Home() {
           </div>
         </div>
 
-        {pendingMeaningChoice && (
-  <button
-    type="button"
-    onClick={() =>
-      void beginMeaningChoiceFlow(
-        pendingMeaningChoice.rawPhrase,
-        pendingMeaningChoice.source,
-        pendingMeaningChoice.normalizedTags
-      )
-    }
-    className="button-secondary"
-    disabled={meaningPickerLoading}
-  >
-    {meaningPickerLoading ? "Trying..." : "Try again"}
-  </button>
-)}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {pendingMeaningChoice && (
+            <button
+              type="button"
+              onClick={() =>
+                void beginMeaningChoiceFlow(
+                  pendingMeaningChoice.rawPhrase,
+                  pendingMeaningChoice.source,
+                  pendingMeaningChoice.normalizedTags
+                )
+              }
+              className="button-secondary"
+              disabled={meaningPickerLoading}
+            >
+              {meaningPickerLoading ? "Trying..." : "Try again"}
+            </button>
+          )}
 
-        <button
-          onClick={closeMeaningPicker}
-          className="button-secondary"
-          disabled={meaningPickerLoading}
-        >
-          Close
-        </button>
+          <button
+            onClick={closeMeaningPicker}
+            className="button-secondary"
+            disabled={meaningPickerLoading}
+          >
+            Close
+          </button>
+        </div>
       </div>
 
       {pendingMeaningChoice && (
@@ -3956,6 +4118,67 @@ export default function Home() {
             })}
           </div>
 
+          <div style={{ marginTop: 16 }}>
+            <button
+              className="button-secondary"
+              type="button"
+              onClick={() => {
+                setCustomMeaningOpen((prev) => !prev);
+                setMeaningPickerError(null);
+              }}
+              disabled={meaningPickerLoading}
+            >
+              I meant something else
+            </button>
+
+            {customMeaningOpen && (
+              <div
+                className="mini-box"
+                style={{
+                  marginTop: 12,
+                  padding: 14,
+                  border: "1px solid #e5e7eb",
+                  background: "#f9fafb",
+                  display: "grid",
+                  gap: 10,
+                }}
+              >
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontWeight: 600 }}>What did you mean?</span>
+                  <textarea
+                    value={customMeaningText}
+                    onChange={(e) => setCustomMeaningText(e.target.value)}
+                    placeholder="e.g. probably, not supposedly"
+                    className="textarea-input"
+                    rows={2}
+                  />
+                </label>
+
+                <label style={{ display: "grid", gap: 6 }}>
+                  <span style={{ fontWeight: 600 }}>
+                    Where did you see it? Optional, but helpful.
+                  </span>
+                  <textarea
+                    value={customMeaningContext}
+                    onChange={(e) => setCustomMeaningContext(e.target.value)}
+                    placeholder="Paste the Danish sentence here..."
+                    className="textarea-input"
+                    rows={3}
+                  />
+                </label>
+
+                <button
+                  className="button-primary"
+                  type="button"
+                  onClick={() => void confirmCustomMeaningChoice()}
+                  disabled={meaningPickerLoading}
+                >
+                  {meaningPickerLoading ? "Analyzing..." : "Analyze this meaning"}
+                </button>
+              </div>
+            )}
+          </div>
+
           <div
             className="controls-row"
             style={{
@@ -3991,101 +4214,157 @@ export default function Home() {
 )}
 
     {refreshMeaningPicker.open && refreshMeaningPicker.itemId && refreshMeaningPicker.entityType && (
+  <div
+    style={{
+      position: "fixed",
+      inset: 0,
+      background: "rgba(15, 23, 42, 0.45)",
+      zIndex: 220,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: 16,
+    }}
+    onClick={closeRefreshMeaningPicker}
+  >
+    <div
+      className="card"
+      style={{
+        width: "100%",
+        maxWidth: 760,
+        maxHeight: "85vh",
+        overflowY: "auto",
+        margin: 0,
+        padding: 20,
+        boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+      }}
+      onClick={(e) => e.stopPropagation()}
+    >
       <div
         style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(15, 23, 42, 0.45)",
-          zIndex: 220,
           display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 16,
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+          marginBottom: 14,
         }}
-        onClick={closeRefreshMeaningPicker}
       >
-        <div
-          className="card"
-          style={{
-            width: "100%",
-            maxWidth: 760,
-            maxHeight: "85vh",
-            overflowY: "auto",
-            margin: 0,
-            padding: 20,
-            boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-              gap: 12,
-              marginBottom: 14,
-            }}
-          >
-            <div>
-              <h2 className="section-title" style={{ marginBottom: 6 }}>
-                Choose meaning for this card
-              </h2>
-              <div className="meta-text">
-                Pick one of the existing or newly generated meaning options.
-              </div>
-            </div>
-
-            <button
-              onClick={closeRefreshMeaningPicker}
-              className="button-secondary"
-            >
-              Close
-            </button>
-          </div>
-
-          <div style={{ display: "grid", gap: 12 }}>
-            {refreshMeaningPicker.candidates.map((candidate, index) => (
-              <div
-                key={`${candidate}-${index}`}
-                className="mini-box"
-                style={{
-                  margin: 0,
-                  padding: 14,
-                  border: "1px solid #e5e7eb",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 12,
-                  flexWrap: "wrap",
-                }}
-              >
-                <div style={{ fontWeight: 600 }}>{candidate}</div>
-
-                <button
-                  type="button"
-                  className="button-primary"
-                  onClick={() =>
-                    void chooseMeaningForItem(
-                      refreshMeaningPicker.itemId!,
-                      refreshMeaningPicker.entityType!,
-                      candidate
-                    )
-                  }
-                >
-                  Choose this meaning
-                </button>
-              </div>
-            ))}
-
-            {refreshMeaningPicker.candidates.length === 0 && (
-              <div className="mini-box" style={{ margin: 0 }}>
-                No meaning candidates available.
-              </div>
-            )}
+        <div>
+          <h2 className="section-title" style={{ marginBottom: 6 }}>
+            Choose meaning for this card
+          </h2>
+          <div className="meta-text">
+            Pick one of the existing or newly generated meaning options.
           </div>
         </div>
+
+        <button
+          onClick={closeRefreshMeaningPicker}
+          className="button-secondary"
+        >
+          Close
+        </button>
       </div>
-    )}
+
+      <div style={{ display: "grid", gap: 12 }}>
+        {refreshMeaningPicker.candidates.map((candidate, index) => (
+          <div
+            key={`${candidate}-${index}`}
+            className="mini-box"
+            style={{
+              margin: 0,
+              padding: 14,
+              border: "1px solid #e5e7eb",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ fontWeight: 600 }}>{candidate}</div>
+
+            <button
+              type="button"
+              className="button-primary"
+              onClick={() =>
+                void chooseMeaningForItem(
+                  refreshMeaningPicker.itemId!,
+                  refreshMeaningPicker.entityType!,
+                  candidate
+                )
+              }
+            >
+              Choose this meaning
+            </button>
+          </div>
+        ))}
+
+        {refreshMeaningPicker.candidates.length === 0 && (
+          <div className="mini-box" style={{ margin: 0 }}>
+            No meaning candidates available.
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <button
+          className="button-secondary"
+          type="button"
+          onClick={() => setRefreshCustomMeaningOpen((prev) => !prev)}
+        >
+          I meant something else
+        </button>
+
+        {refreshCustomMeaningOpen && (
+          <div
+            className="mini-box"
+            style={{
+              marginTop: 12,
+              padding: 14,
+              border: "1px solid #e5e7eb",
+              background: "#f9fafb",
+              display: "grid",
+              gap: 10,
+            }}
+          >
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontWeight: 600 }}>What did you mean?</span>
+              <textarea
+                value={refreshCustomMeaningText}
+                onChange={(e) => setRefreshCustomMeaningText(e.target.value)}
+                placeholder="e.g. probably, not supposedly"
+                className="textarea-input"
+                rows={2}
+              />
+            </label>
+
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontWeight: 600 }}>
+                Where did you see it? Optional, but helpful.
+              </span>
+              <textarea
+                value={refreshCustomMeaningContext}
+                onChange={(e) => setRefreshCustomMeaningContext(e.target.value)}
+                placeholder="Paste the Danish sentence here..."
+                className="textarea-input"
+                rows={3}
+              />
+            </label>
+
+            <button
+              className="button-primary"
+              type="button"
+              onClick={() => void chooseCustomMeaningForItem()}
+            >
+              Analyze this meaning
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
   </main>
 );
 }

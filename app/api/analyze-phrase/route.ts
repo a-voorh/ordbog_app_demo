@@ -11,17 +11,57 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const phrase = typeof body.phrase === "string" ? body.phrase.trim() : "";
+
     const translationEn =
       typeof body.translation_en === "string"
         ? body.translation_en.trim()
+        : "";
+
+    const intendedMeaning =
+      typeof body.intendedMeaning === "string"
+        ? body.intendedMeaning.trim()
+        : "";
+
+    const contextSentence =
+      typeof body.contextSentence === "string"
+        ? body.contextSentence.trim()
         : "";
 
     if (!phrase) {
       return Response.json({ error: "Missing phrase" }, { status: 400 });
     }
 
-    const meaningInstruction = translationEn
-      ? `Important meaning constraint:
+    const hasCustomMeaning = intendedMeaning || contextSentence;
+
+    const meaningInstruction = hasCustomMeaning
+      ? `Important custom meaning/context constraint:
+The learner says the automatically suggested meanings did NOT match what they meant.
+
+Analyze the Danish phrase according to the learner's intended meaning and/or context.
+
+Learner's intended meaning:
+"${intendedMeaning || "(not provided)"}"
+
+Context sentence where the learner saw the phrase:
+"${contextSentence || "(not provided)"}"
+
+Priority:
+1. The context sentence is the strongest evidence.
+2. The learner's intended meaning is the second strongest evidence.
+3. Do NOT fall back to the most common meaning if it conflicts with the context.
+4. Do NOT use the automatically suggested/common meaning unless it fits the context.
+5. If the learner's intended meaning is possible, generate the card for that meaning.
+6. If the learner's intended meaning is not quite right but the context clearly points to a nearby meaning, use the context-based meaning and explain it gently in the fields.
+7. If the phrase itself is slightly misspelled, correct it only when the context makes the correction clear.
+
+All fields must match the custom/context meaning:
+- translation_en
+- short_explanation_da
+- example_da
+- example_en
+- extra_info`
+      : translationEn
+        ? `Important meaning constraint:
 The intended English meaning of this phrase is: "${translationEn}".
 
 You MUST generate the card for this meaning only.
@@ -34,8 +74,55 @@ All fields must match this intended meaning:
 - extra_info
 
 If the Danish phrase is ambiguous, keep the Danish surface form if possible, but make the explanation and example clearly match the intended meaning.`
-      : `If the phrase has multiple meanings, choose the most common useful learner meaning.
+        : `If the phrase has multiple meanings, choose the most common useful learner meaning.
 Prefer the meaning that would be most useful in everyday Danish.`;
+
+    const userContent = hasCustomMeaning
+      ? `Analyze this Danish phrase: "${phrase}"
+
+The learner did NOT mean the automatically suggested meaning.
+
+Learner's intended meaning:
+"${intendedMeaning || "(not provided)"}"
+
+Context sentence:
+"${contextSentence || "(not provided)"}"
+
+Return JSON with exactly this structure:
+{
+  "corrected_phrase": "...",
+  "translation_en": "...",
+  "short_explanation_da": "...",
+  "example_da": "...",
+  "example_en": "...",
+  "extra_info": "..."
+}`
+      : translationEn
+        ? `Analyze this Danish phrase: "${phrase}"
+
+The intended English meaning is:
+"${translationEn}"
+
+Return JSON with exactly this structure:
+{
+  "corrected_phrase": "...",
+  "translation_en": "...",
+  "short_explanation_da": "...",
+  "example_da": "...",
+  "example_en": "...",
+  "extra_info": "..."
+}`
+        : `Analyze this Danish phrase: "${phrase}"
+
+Return JSON with exactly this structure:
+{
+  "corrected_phrase": "...",
+  "translation_en": "...",
+  "short_explanation_da": "...",
+  "example_da": "...",
+  "example_en": "...",
+  "extra_info": "..."
+}`;
 
     const response = await client.responses.create({
       model: MODEL,
@@ -77,13 +164,14 @@ Rules for corrected_phrase:
 - Keep leading "at" for infinitive verb phrases if the learner included it.
 - Do not add leading "at" unless the phrase is clearly meant as an infinitive verb phrase.
 - For fixed expressions, keep the fixed expression.
+- If the context clearly shows that the learner typed a slightly wrong form, correct it to the natural Danish form.
 
 Rules for short_explanation_da:
 - Write in simple Danish.
 - Prefer one short sentence or sentence fragment.
 - Do not start the explanation with "Det betyder...".
-- NEVER repeat the target phrase. 
-- Avoid using the words with the same root as the target phrase. For example, do not use the word "sandsynlighed" to explain the meaning of the word "sandsynlig".
+- NEVER repeat the target phrase.
+- Avoid using words with the same root as the target phrase when possible.
 
 Rules for example_da:
 - Include the corrected phrase or a natural inflected form of it.
@@ -91,6 +179,7 @@ Rules for example_da:
 - Keep it short.
 - Avoid complicated subordinate clauses unless needed.
 - Avoid examples about learning Danish unless the phrase naturally calls for it.
+- If custom context was provided, make the example fit that meaning, not a different common meaning.
 
 Rules for extra_info:
 - If the phrase is primarily a verb or verbal expression, give short conjugation info in Danish.
@@ -108,32 +197,7 @@ Rules for extra_info:
         },
         {
           role: "user",
-          content: translationEn
-            ? `Analyze this Danish phrase: "${phrase}"
-
-The intended English meaning is:
-"${translationEn}"
-
-Return JSON with exactly this structure:
-{
-  "corrected_phrase": "...",
-  "translation_en": "...",
-  "short_explanation_da": "...",
-  "example_da": "...",
-  "example_en": "...",
-  "extra_info": "..."
-}`
-            : `Analyze this Danish phrase: "${phrase}"
-
-Return JSON with exactly this structure:
-{
-  "corrected_phrase": "...",
-  "translation_en": "...",
-  "short_explanation_da": "...",
-  "example_da": "...",
-  "example_en": "...",
-  "extra_info": "..."
-}`,
+          content: userContent,
         },
       ],
       text: {
@@ -180,8 +244,6 @@ Return JSON with exactly this structure:
 
     return Response.json({
       ...parsed,
-
-      // Kept for compatibility with the current frontend.
       result: JSON.stringify(parsed),
     });
   } catch (error: any) {
