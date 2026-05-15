@@ -41,7 +41,8 @@ type PhraseFeedbackItem = {
   correctedSentence: string;
 };
 
-const MODEL = "gpt-4.1-mini";
+const CHAT_MODEL = "gpt-5.4-mini";
+const JUDGE_MODEL = "gpt-4.1-mini";
 
 const normalizeText = (value: string) =>
   value
@@ -577,7 +578,7 @@ const generateAssistantReply = async ({
   userMessage: string;
 }) => {
   const replyResponse = await openai.responses.create({
-    model: MODEL,
+    model: CHAT_MODEL,
     input: buildConversationMessages({ phraseList, history, userMessage }),
     text: {
       format: {
@@ -602,7 +603,7 @@ const rewriteAssistantReply = async ({
   phraseList: string[];
 }) => {
   const rewriteResponse = await openai.responses.create({
-    model: MODEL,
+    model: CHAT_MODEL,
     input: [
       {
         role: "system",
@@ -701,7 +702,7 @@ const evaluateTargetPhrases = async ({
   return Promise.all(
     phrasesWithVariants.map(async (phraseItem) => {
       const singlePhraseResponse = await openai.responses.create({
-        model: MODEL,
+        model: JUDGE_MODEL,
         input: [
           {
             role: "system",
