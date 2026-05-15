@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
+import { TABLES } from "../../../lib/tables";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -50,7 +51,7 @@ type RequestBody = {
 };
 
 function getTableName(entityType: EntityType) {
-  return entityType === "phrase" ? "phrases" : "phrase_drafts";
+  return entityType === "phrase" ? TABLES.phrases : TABLES.drafts;
 }
 
 async function getRow(entityType: EntityType, id: string): Promise<RowData> {
