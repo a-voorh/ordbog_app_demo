@@ -212,7 +212,7 @@ export async function POST(req: Request) {
         )?.content ?? "";
 
     const reviewResponse = await client.responses.create({
-      model: "gpt-4.1-mini",
+      model: "gpt-5.4-mini",
       input: [
         {
           role: "system",
