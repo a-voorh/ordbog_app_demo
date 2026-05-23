@@ -15,7 +15,7 @@ const GAP_WORD_TAG = "forbinderord!!!!";
 const IS_DEMO_MODE = process.env.NEXT_PUBLIC_APP_MODE === "demo";
 const ENABLE_GAP_EXERCISES = !IS_DEMO_MODE;
 
-type ExerciseType = "translation" | "preposition" | "gap";
+type ExerciseType = "translation" | "preposition" | "gap" | "writing";
 
 type PhraseCard = {
   id: string;
@@ -78,6 +78,23 @@ type QuestSession = {
   finished: boolean;
 };
 
+type WritingMission = {
+  title: string;
+  task_da: string;
+  original_text_da: string;
+  target_phrases: string[];
+};
+
+type WritingMissionResult = {
+  meaning_preserved: boolean;
+  naturalness: string;
+  conciseness: string;
+  used_target_phrases: string[];
+  missed_opportunities: string[];
+  feedback_da: string;
+  suggested_version_da: string;
+};
+
 const PREPOSITIONS = [
   "til",
   "på",
@@ -104,22 +121,16 @@ const PREPOSITIONS = [
 const PREPOSITION_PAIRS: Record<string, string> = {
   til: "for",
   for: "til",
-
   i: "på",
   på: "i",
-
   af: "fra",
   fra: "af",
-
   med: "uden",
   uden: "med",
-
   over: "under",
   under: "over",
-
   før: "efter",
   efter: "før",
-
   bag: "foran",
   foran: "bag",
 };
@@ -221,7 +232,7 @@ const examplesForCard = (
 const learningKeyFor = (
   card: PhraseCard,
   example: SelectedExample,
-  type: ExerciseType
+  type: Exclude<ExerciseType, "writing">
 ) => `${type}:${card.id}:${normalizeText(example.sentence_da)}`;
 
 const makePrepositionQuest = (sentence: string): PrepositionQuest | null => {
@@ -345,7 +356,9 @@ const encouragementForScore = (correct: number, total: number) => {
 
 export default function LearningPage() {
   const [cards, setCards] = useState<PhraseCard[]>([]);
-  const [examplesByPhraseId, setExamplesByPhraseId] = useState<Record<string, PhraseExample[]>>({});
+  const [examplesByPhraseId, setExamplesByPhraseId] = useState<
+    Record<string, PhraseExample[]>
+  >({});
   const [card, setCard] = useState<PhraseCard | null>(null);
   const [selectedExample, setSelectedExample] = useState<SelectedExample | null>(null);
   const [answer, setAnswer] = useState("");
@@ -377,6 +390,12 @@ export default function LearningPage() {
   const [, setRecentLearningItems] = useState<string[]>([]);
   const [exerciseType, setExerciseType] = useState<ExerciseType>("translation");
 
+  const [writingMission, setWritingMission] = useState<WritingMission | null>(null);
+  const [writingAnswer, setWritingAnswer] = useState("");
+  const [writingResult, setWritingResult] = useState<WritingMissionResult | null>(null);
+  const [writingLoading, setWritingLoading] = useState(false);
+  const [writingChecking, setWritingChecking] = useState(false);
+
   const gapWords = useMemo(() => getGapWordsFromCards(cards), [cards]);
 
   const englishPrompt =
@@ -401,6 +420,139 @@ export default function LearningPage() {
       ? makeGapExercise(selectedExample.sentence_da, gapWords)
       : null;
   }, [selectedExample, gapWords]);
+
+  const pickWritingMissionTargets = () => {
+    const pool = [...cards]
+      .filter((item) => item.phrase && item.phrase.trim().length > 1)
+      .sort(() => Math.random() - 0.5);
+
+    return pool.slice(0, 3).map((item) => item.phrase);
+  };
+
+  const generateWritingMission = async () => {
+    const targetPhrases = pickWritingMissionTargets();
+
+    if (targetPhrases.length < 2) {
+      alert("Not enough phrases for a writing mission yet.");
+      return;
+    }
+
+    setWritingLoading(true);
+    setWritingResult(null);
+    setWritingAnswer("");
+
+    try {
+      const res = await fetch("/api/generate-writing-mission", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetPhrases }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error ?? "Could not generate writing mission.");
+      }
+
+      setWritingMission(data);
+    } catch (error) {
+      console.error(error);
+      alert("Could not generate writing mission.");
+    } finally {
+      setWritingLoading(false);
+    }
+  };
+
+  const recordWritingMissionBonuses = async (usedPhrases: string[]) => {
+    if (!usedPhrases.length) return;
+
+    const normalizedUsed = usedPhrases.map((phrase) => normalizeText(phrase));
+    const nowIso = new Date().toISOString();
+
+    const cardsToUpdate = cards.filter((item) =>
+      normalizedUsed.includes(normalizeText(item.phrase))
+    );
+
+    await Promise.all(
+      cardsToUpdate.map(async (cardToUpdate) => {
+        const nextLearningCorrect = (cardToUpdate.learning_correct || 0) + 0.2;
+        const nextAttempted = (cardToUpdate.learning_attempted || 0) + 1;
+
+        const { error } = await supabase
+          .from(TABLES.phrases)
+          .update({
+            learning_correct: nextLearningCorrect,
+            learning_attempted: nextAttempted,
+            last_learning_at: nowIso,
+          })
+          .eq("id", cardToUpdate.id);
+
+        if (error) {
+          console.error("Failed to apply writing mission bonus:", error);
+          return;
+        }
+
+        setCards((prev) =>
+          prev.map((item) =>
+            item.id === cardToUpdate.id
+              ? {
+                  ...item,
+                  learning_correct: nextLearningCorrect,
+                  learning_attempted: nextAttempted,
+                  last_learning_at: nowIso,
+                }
+              : item
+          )
+        );
+
+        setCard((prev) =>
+          prev?.id === cardToUpdate.id
+            ? {
+                ...prev,
+                learning_correct: nextLearningCorrect,
+                learning_attempted: nextAttempted,
+                last_learning_at: nowIso,
+              }
+            : prev
+        );
+      })
+    );
+  };
+
+  const checkWritingMission = async () => {
+    if (!writingMission || !writingAnswer.trim()) return;
+
+    setWritingChecking(true);
+
+    try {
+      const res = await fetch("/api/evaluate-writing-mission", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          original_text_da: writingMission.original_text_da,
+          user_text_da: writingAnswer,
+          target_phrases: writingMission.target_phrases,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error ?? "Could not evaluate writing mission.");
+      }
+
+      setWritingResult(data);
+
+      if (data.meaning_preserved !== false) {
+        await recordWritingMissionBonuses(data.used_target_phrases || []);
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Could not check writing mission.");
+    } finally {
+      setWritingChecking(false);
+    }
+  };
 
   const ensureTranslation = async (
     example: SelectedExample,
@@ -442,7 +594,7 @@ export default function LearningPage() {
   const rememberLearningItem = (
     cardToRemember: PhraseCard,
     exampleToRemember: SelectedExample,
-    type: ExerciseType
+    type: Exclude<ExerciseType, "writing">
   ) => {
     const key = learningKeyFor(cardToRemember, exampleToRemember, type);
 
@@ -455,7 +607,7 @@ export default function LearningPage() {
 
   const pickRandomLearningItem = (
     list: PhraseCard[],
-    type: ExerciseType,
+    type: Exclude<ExerciseType, "writing">,
     examplesMap: Record<string, PhraseExample[]>,
     currentCardId?: string | null,
     gapWordList = getGapWordsFromCards(list)
@@ -535,11 +687,11 @@ export default function LearningPage() {
       return;
     }
 
-    const loadedCards = ((data || []) as PhraseCard[]).filter((card) => {
-      const spontaneous = card.times_spontaneous_correct || 0;
+    const loadedCards = ((data || []) as PhraseCard[]).filter((item) => {
+      const spontaneous = item.times_spontaneous_correct || 0;
       if (spontaneous >= 1) return false;
 
-      const promptedCorrect = card.times_correct || 0;
+      const promptedCorrect = item.times_correct || 0;
       if (promptedCorrect >= 3) return false;
 
       return true;
@@ -574,7 +726,7 @@ export default function LearningPage() {
 
     const firstItem = pickRandomLearningItem(
       loadedCards,
-      exerciseType,
+      "translation",
       examplesMap,
       undefined,
       loadedGapWords
@@ -607,11 +759,11 @@ export default function LearningPage() {
     setHasRecordedResult(false);
     setLoading(false);
 
-    rememberLearningItem(firstItem.card, translatedExample, exerciseType);
+    rememberLearningItem(firstItem.card, translatedExample, "translation");
   };
 
   const moveToNextLearningItem = async () => {
-    if (!cards.length) return;
+    if (!cards.length || exerciseType === "writing") return;
 
     const next = pickRandomLearningItem(
       cards,
@@ -638,6 +790,7 @@ export default function LearningPage() {
   };
 
   const nextCard = async () => {
+    if (exerciseType === "writing") return;
     if (exerciseType === "preposition" && !prepositionChecked) return;
     if (exerciseType === "gap" && !gapChecked) return;
 
@@ -693,6 +846,17 @@ export default function LearningPage() {
       });
     }
 
+    setExerciseType(type);
+
+    if (type === "writing") {
+      if (!writingMission) {
+        await generateWritingMission();
+      }
+
+      setSwitchingExerciseType(false);
+      return;
+    }
+
     const next = pickRandomLearningItem(
       cards,
       type,
@@ -709,7 +873,6 @@ export default function LearningPage() {
       rememberLearningItem(next.card, translatedExample, type);
     }
 
-    setExerciseType(type);
     setSwitchingExerciseType(false);
   };
 
@@ -838,7 +1001,7 @@ export default function LearningPage() {
   }, []);
 
   const checkAnswer = async () => {
-    if (!card) return;
+    if (!card || exerciseType === "writing") return;
 
     if (exerciseType === "translation" && !answer.trim()) return;
     if (exerciseType === "preposition" && prepositionChecked) return;
@@ -1006,6 +1169,13 @@ export default function LearningPage() {
     opacity: 0.92,
   };
 
+  const toolTagStyle = {
+    padding: "6px 10px",
+    borderRadius: 999,
+    background: "#e2e8f0",
+    fontSize: 14,
+  };
+
   if (loading) {
     return (
       <main className="app-page">
@@ -1111,8 +1281,8 @@ export default function LearningPage() {
           <h1 className="app-title">🧠 Learning Mode</h1>
           <p className="app-subtitle">
             {ENABLE_GAP_EXERCISES
-              ? "Practice translating, prepositions, and connector words."
-              : "Practice translating and prepositions."}
+              ? "Practice translating, writing, prepositions, and connector words."
+              : "Practice translating, writing, and prepositions."}
           </p>
         </div>
 
@@ -1129,6 +1299,8 @@ export default function LearningPage() {
             ? `Preposition quest ${prepositionSession.current}/${prepositionSession.total}`
             : ENABLE_GAP_EXERCISES && exerciseType === "gap"
             ? `Connector quest ${gapSession.current}/${gapSession.total}`
+            : exerciseType === "writing"
+            ? "Writing mission"
             : "Translate into Danish"}
         </h2>
 
@@ -1154,6 +1326,15 @@ export default function LearningPage() {
             Translation
           </button>
 
+          <button
+            className={exerciseType === "writing" ? "primary-button" : "nav-button"}
+            style={modeButtonStyle(exerciseType === "writing")}
+            onClick={() => switchExerciseType("writing")}
+            disabled={switchingExerciseType}
+          >
+            Writing mission
+          </button>
+
           {ENABLE_GAP_EXERCISES && (
             <button
               className={exerciseType === "gap" ? "primary-button" : "nav-button"}
@@ -1175,7 +1356,140 @@ export default function LearningPage() {
           </button>
         </div>
 
-        {exerciseType === "preposition" ? (
+        {exerciseType === "writing" ? (
+          <>
+            {!writingMission ? (
+              <button
+                className="nav-button"
+                style={primaryActionStyle}
+                onClick={generateWritingMission}
+                disabled={writingLoading}
+              >
+                {writingLoading ? "Laver mission..." : "Start writing mission"}
+              </button>
+            ) : (
+              <>
+                <p style={{ fontWeight: 600 }}>{writingMission.task_da}</p>
+
+                <div style={{ margin: "12px 0" }}>
+                  <strong>Dine værktøjer:</strong>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      flexWrap: "wrap",
+                      marginTop: 8,
+                    }}
+                  >
+                    {writingMission.target_phrases.map((phrase) => (
+                      <span key={phrase} style={toolTagStyle}>
+                        {phrase}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    background: "#f8fafc",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 12,
+                    padding: 14,
+                    whiteSpace: "pre-wrap",
+                    marginBottom: 12,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {writingMission.original_text_da}
+                </div>
+
+                <textarea
+                  value={writingAnswer}
+                  onChange={(e) => setWritingAnswer(e.target.value)}
+                  placeholder="Skriv din kortere og mere naturlige version her..."
+                  rows={5}
+                  style={{
+                    width: "100%",
+                    padding: 14,
+                    borderRadius: 14,
+                    border: "1px solid #d1d5db",
+                    fontSize: 16,
+                    marginBottom: 14,
+                    resize: "vertical",
+                  }}
+                />
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button
+                    className="nav-button"
+                    style={primaryActionStyle}
+                    onClick={checkWritingMission}
+                    disabled={writingChecking || !writingAnswer.trim()}
+                  >
+                    {writingChecking ? "Tjekker..." : "Check mission"}
+                  </button>
+
+                  <button
+                    className="nav-button"
+                    style={secondaryActionStyle}
+                    onClick={generateWritingMission}
+                    disabled={writingLoading || writingChecking}
+                  >
+                    New mission
+                  </button>
+                </div>
+
+                {writingResult && (
+                  <div
+                    style={{
+                      marginTop: 16,
+                      padding: 14,
+                      borderRadius: 12,
+                      border: "1px solid #e2e8f0",
+                      background: "#fff",
+                    }}
+                  >
+                    <h3 style={{ fontWeight: 700 }}>Feedback</h3>
+                    <p>{writingResult.feedback_da}</p>
+
+                    {writingResult.used_target_phrases.length > 0 && (
+                      <p>
+                        <strong>Naturlige forbedringer:</strong>{" "}
+                        {writingResult.used_target_phrases.join(", ")}
+                      </p>
+                    )}
+
+                    {writingResult.missed_opportunities.length > 0 && (
+                      <p>
+                        <strong>Kunne også være nyttige:</strong>{" "}
+                        {writingResult.missed_opportunities.join(", ")}
+                      </p>
+                    )}
+
+                    {writingResult.suggested_version_da && (
+                      <>
+                        <strong>Forslag:</strong>
+                        <div
+                          style={{
+                            marginTop: 8,
+                            background: "#f8fafc",
+                            border: "1px solid #e2e8f0",
+                            borderRadius: 12,
+                            padding: 12,
+                            whiteSpace: "pre-wrap",
+                            lineHeight: 1.6,
+                          }}
+                        >
+                          {writingResult.suggested_version_da}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        ) : exerciseType === "preposition" ? (
           <>
             <p className="meta-text" style={{ marginBottom: 12 }}>
               Fill in the missing prepositions:
@@ -1301,40 +1615,42 @@ export default function LearningPage() {
           </>
         )}
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 }}>
-          <button
-            className="nav-button"
-            style={primaryActionStyle}
-            onClick={checkAnswer}
-            disabled={isCheckDisabled}
-          >
-            {checking ? "Checking..." : "Check answer"}
-          </button>
+        {exerciseType !== "writing" && (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 }}>
+            <button
+              className="nav-button"
+              style={primaryActionStyle}
+              onClick={checkAnswer}
+              disabled={isCheckDisabled}
+            >
+              {checking ? "Checking..." : "Check answer"}
+            </button>
 
-          <button
-            className="nav-button"
-            style={secondaryActionStyle}
-            onClick={nextCard}
-            disabled={
-              checking ||
-              (exerciseType === "preposition" && !prepositionChecked) ||
-              (exerciseType === "gap" && !gapChecked)
-            }
-          >
-            {exerciseType === "preposition"
-              ? prepositionSession.current >= prepositionSession.total
-                ? "Finish quest"
-                : "Next →"
-              : ENABLE_GAP_EXERCISES && exerciseType === "gap"
-              ? gapSession.current >= gapSession.total
-                ? "Finish quest"
-                : "Next →"
-              : "Next card →"}
-          </button>
-        </div>
+            <button
+              className="nav-button"
+              style={secondaryActionStyle}
+              onClick={nextCard}
+              disabled={
+                checking ||
+                (exerciseType === "preposition" && !prepositionChecked) ||
+                (exerciseType === "gap" && !gapChecked)
+              }
+            >
+              {exerciseType === "preposition"
+                ? prepositionSession.current >= prepositionSession.total
+                  ? "Finish quest"
+                  : "Next →"
+                : ENABLE_GAP_EXERCISES && exerciseType === "gap"
+                ? gapSession.current >= gapSession.total
+                  ? "Finish quest"
+                  : "Next →"
+                : "Next card →"}
+            </button>
+          </div>
+        )}
       </div>
 
-      {result && (
+      {result && exerciseType !== "writing" && (
         <div className="card">
           <h2 className="section-title">Result: {result.status}</h2>
 
